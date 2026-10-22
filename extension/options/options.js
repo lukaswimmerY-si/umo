@@ -67,3 +67,19 @@ async function renderErrors() {
 }
 chrome.storage.onChanged.addListener(ch => { if (ch.lastErrors) renderErrors(); });
 renderErrors();
+
+async function loadVoice() {
+  const s = await chrome.storage.local.get(["elevenKey", "elevenVoice", "elevenModel"]);
+  $("elKey").value = s.elevenKey || ""; $("elVoice").value = s.elevenVoice || "xTXZTtb6MuzG0jJR05Y9"; $("elModel").value = s.elevenModel || "eleven_multilingual_v2";
+}
+const elStatus = (t, ok) => { $("elSt").textContent = t; $("elSt").className = "status " + (ok ? "ok" : "bad"); };
+async function saveVoice() { await chrome.storage.local.set({ elevenKey: $("elKey").value.trim(), elevenVoice: $("elVoice").value.trim() || "xTXZTtb6MuzG0jJR05Y9", elevenModel: $("elModel").value }); }
+$("elSave").onclick = async () => { await saveVoice(); elStatus("Gespeichert.", true); };
+$("elTest").onclick = async () => {
+  await saveVoice(); elStatus("Lade Stimme …", true);
+  chrome.runtime.sendMessage({ type: "umo-tts", text: "Hallo, ich bin UMO. Ich lese dir Texte und Grafiken in einfacher Sprache vor.", id: 0 }, r => {
+    if (r && r.ok) elStatus("Läuft.", true);
+    else elStatus(r && r.code === "no_tts_key" ? "Bitte zuerst einen Schlüssel eintragen." : r && r.code === "tts_bad_key" ? "Der Schlüssel wird nicht akzeptiert." : "Fehler: " + (r && r.error || "keine Antwort"), false);
+  });
+};
+loadVoice();

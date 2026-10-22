@@ -47,13 +47,13 @@
 
   /* ---------- state ---------- */
   const HOST = location.hostname.replace(/^www\./, "");
-  const cfg = { apiKey: "", needs: "", hiddenSites: [], showLauncher: true };
+  const cfg = { apiKey: "", needs: "", hiddenSites: [], showLauncher: true, elevenKey: "" };
   const M = { noise: false, guide: false, summary: false, simplify: false, structure: false, snack: false, product: false, explainPage: false, charts: false, calmPage: false, sound: false };
   const ui = { view: null, chat: [], chatMode: "text", visible: true };
   const page = { type: "seite", isArticle: false, products: [], search: null, article: null, graphics: [] };
   const hasKey = () => !!cfg.apiKey;
   const readerModes = () => M.summary || M.simplify || M.structure || M.snack || M.product || M.explainPage;
-  const level = () => M.simplify && M.structure ? "sehr" : M.simplify ? "einfach" : "struktur";
+  const level = () => !hasKey() ? "struktur" : M.structure ? "sehr" : "einfach";
 
   /* ---------- shadow UI ---------- */
   const hostEl = document.createElement("umo-root");
@@ -203,6 +203,15 @@
     for (let y = 0; y < H && pending().length; y += Math.max(300, innerHeight * 0.8)) { scrollTo({ top: y, behavior: "instant" }); await sleep(150); }
     scrollTo({ top: y0, behavior: "instant" }); await sleep(400);
   }
+  // Nur Elemente, die eine Erklärung brauchen: Diagramme, Karten, Tabellen, Infografiken. Fotos nicht.
+  const INFO_RE = /grafik|diagramm|chart|infografik|karte|statistik|tabelle|prozent|anteil|entwicklung|verteilung|vergleich|umfrage|ergebnis|zahlen|kurve|balken|wahlkreis|%/i;
+  function isExplainable(st, el) {
+    if (["dw", "iframe", "svg", "canvas", "table"].includes(st.kind)) return true;
+    if (st.kind !== "img") return false;
+    const fig = el.closest("figure");
+    const txt = [el.getAttribute("alt"), el.getAttribute("title"), el.getAttribute("src"), fig && fig.querySelector("figcaption") && fig.querySelector("figcaption").innerText].filter(Boolean).join(" ");
+    return INFO_RE.test(txt);
+  }
   function markGraphics() {
     page.graphics = [];
     const vizRe = /datawrapper|flourish|infogram|chart|grafik|graphic|statista|diagram|karte|map/i;
@@ -218,7 +227,7 @@
       if (!el.dataset.umoGid) el.dataset.umoGid = "g" + (n++);
       const gid = el.dataset.umoGid, kind = el.tagName === "IFRAME" && isDwSrc(el.src) ? "dw" : el.tagName.toLowerCase();
       const st = CH.get(gid) || { gid, exp: {}, qa: [], open: false };
-      st.el = el; st.kind = kind; st.src = el.src || ""; CH.set(gid, st);
+      st.el = el; st.kind = kind; st.src = el.src || ""; st.explainable = isExplainable(st, el); CH.set(gid, st);
       page.graphics.push({ gid, kind, label: kind === "dw" || kind === "iframe" ? "Grafik" : kind === "table" ? "Tabelle" : kind === "img" ? "Bild" : "Grafik" });
     }
   }
@@ -307,15 +316,37 @@
 
   /* ---------- speech & sound ---------- */
   const canSpeak = "speechSynthesis" in window;
-  function utter(text, onend) {
+  let ttsSeq = 0, speakingFlag = false, ttsWarned = false;
+  const ttsWait = new Map();
+  const useEleven = () => !!cfg.elevenKey;
+  function browserUtter(text, onend) {
     if (!canSpeak) return false;
     const u = new SpeechSynthesisUtterance(text); u.lang = "de-DE"; u.rate = 0.95;
     const v = speechSynthesis.getVoices().find(v => v.lang && v.lang.toLowerCase().startsWith("de")); if (v) u.voice = v;
-    if (onend) { u.onend = onend; u.onerror = onend; }
-    speechSynthesis.speak(u); return true;
+    u.onend = u.onerror = () => { speakingFlag = false; onend && onend(); };
+    speakingFlag = true; speechSynthesis.speak(u); return true;
   }
-  function speak(t) { if (!canSpeak) return toast("Vorlesen geht in diesem Browser nicht."); speechSynthesis.cancel(); utter(t); }
-  function stopSpeak() { if (canSpeak) speechSynthesis.cancel(); }
+  // Spricht mit ElevenLabs (Amy), sonst mit der Browser-Stimme. onstart(dauerInSekunden) nur bei ElevenLabs.
+  function utter(text, onend, onstart) {
+    if (useEleven()) {
+      const id = ++ttsSeq; ttsWait.set(id, { onend, onstart }); speakingFlag = true;
+      send({ type: "umo-tts", text, id }).then(r => {
+        if (r.ok || !ttsWait.has(id)) return;
+        ttsWait.delete(id); speakingFlag = false;
+        if (!ttsWarned) { ttsWarned = true; toast(r.code === "tts_bad_key" ? "Der ElevenLabs-Schlüssel wird nicht akzeptiert. Ich nutze die Browser-Stimme." : "Die Stimme Amy ist gerade nicht erreichbar. Ich nutze die Browser-Stimme."); }
+        if (!browserUtter(text, onend)) onend && onend();
+      });
+      return true;
+    }
+    return browserUtter(text, onend);
+  }
+  chrome.runtime.onMessage.addListener(m => {
+    if (m.type === "umo-tts-started") { const w = ttsWait.get(m.id); if (w && w.onstart) w.onstart(m.duration || 0); }
+    if (m.type === "umo-tts-ended") { const w = ttsWait.get(m.id); if (!w) return; ttsWait.delete(m.id); speakingFlag = false; w.onend && w.onend(); }
+  });
+  const isSpeaking = () => speakingFlag || (canSpeak && speechSynthesis.speaking);
+  function stopSpeak() { ttsWait.clear(); speakingFlag = false; if (useEleven()) send({ type: "umo-tts-stop" }); if (canSpeak) speechSynthesis.cancel(); }
+  function speak(t) { stopSpeak(); if (!utter(String(t).slice(0, 4500))) toast("Vorlesen geht in diesem Browser nicht."); }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   function listen(btn, onText, onFail) {
     const fail = m => { toast(m); onFail && onFail(); };
@@ -350,28 +381,27 @@
 
   /* ---------- modes ---------- */
   const INFO = {
-    fokus: { title: "Fokus Modus", desc: "Der Fokus Modus hilft Menschen mit bspw. ADHS oder Autismus, Inhalte besser zu konsumieren." },
-    einfach: { title: "Einfach Modus", desc: "Der Einfach Modus vereinfacht durch KI Inhalte und macht sie so verständlich für Menschen mit kognitiven Einschränkungen." },
+    fokus: { title: "Fokus Modus", desc: "Der Fokus Modus blendet aus, was ablenkt: Werbung, Pop-ups, Bewegung. So bleibt der Blick beim Wichtigen." },
+    einfach: { title: "Einfach Modus", desc: "Der Einfach Modus zeigt den Text in einfacher Sprache, mit dem Wichtigsten vorneweg und erklärten Grafiken." },
     einfach_produkt: "Der Einfach Modus erklärt dieses Produkt in einfacher Sprache: was es ist, woraus es ist und worauf du achten solltest. Du kannst auch Fragen stellen.",
     einfach_seite: "Der Einfach Modus erklärt dir in einfacher Sprache, was das für eine Seite ist und was du hier tun kannst.",
     snack: { title: "Snack Modus", desc: "Der Snack Modus fasst lange Inhalte in kleine Pakete zusammen." },
-    calm: { title: "Calming Modus", desc: "Der Calming Modus beruhigt die Seite durch Klarheit und Klang." }
+    calm: { title: "Calming Modus", desc: "Der Calming Modus macht die Seite ruhiger und hilft dir mit einer kurzen Atemübung." }
   };
   const availModes = () => page.type === "artikel" ? ["fokus", "einfach", "snack", "calm"] : ["fokus", "einfach", "calm"];
   function tiles(mode) {
     if (mode === "fokus") {
-      const t = [["noise", "Ablenkende Inhalte ausblenden"]];
-      if (page.type === "artikel") t.push(["summary", "Inhalte zusammenfassen"]);
+      const t = [["noise", "Ablenkungen ausblenden"]];
       if (page.type === "shop" || (page.type === "seite" && page.search)) t.push(["guide", "Auswahl verdichten"]);
       return t;
     }
     if (mode === "einfach") {
-      if (page.type === "artikel") return [["simplify", "Inhalte vereinfachen"], ["structure", "Inhalte einfacher strukturieren"], ["charts", "Grafiken auf der Seite erklären"]];
+      if (page.type === "artikel") return [["simplify", "Einfach lesen"], ["charts", "Grafiken auf der Seite erklären"]];
       if (page.type === "produkt") return [["product", "Produkt einfach erklären"]];
       return [["explainPage", "Seite einfach erklären"]];
     }
     if (mode === "snack") return [["snack", "Inhalte in Pakete zusammenfassen"]];
-    return [["calmPage", "Seite beruhigen"], ["sound", "Ruhige Klänge"]];
+    return [["calmPage", "Seite beruhigen"]];
   }
   const modeOn = m => tiles(m).some(([k]) => M[k]);
   const activeModes = () => availModes().filter(modeOn);
@@ -418,7 +448,7 @@
         <p class="mdesc">${desc}</p>${keyNote}
         <div class="tiles">
           ${ts.map(([k, label]) => `<button class="tile" data-act="sub" data-k="${k}" aria-pressed="${M[k]}"><span class="tg" aria-hidden="true"><i></i></span>${label}</button>`).join("")}
-          ${view === "calm" ? `<button class="tile wide" data-act="breath">${ICON.breath.replace("<svg", '<svg class="ic"')}Atemübung starten<small>4 Sekunden ein, 6 Sekunden aus</small></button>` : needsTile}
+          ${view === "calm" ? `<button class="tile${ts.length % 2 ? "" : " wide"}" data-act="breath">${ICON.breath.replace("<svg", '<svg class="ic"')}Atemübung starten<small>4 Sekunden ein, 6 Sekunden aus</small></button>` : needsTile}
         </div>
         <div class="foot"><span>Deine Wünsche bleiben auf diesem Gerät.</span><button data-act="diag">Was erkennt UMO hier?</button><button data-act="hide-site">Auf ${esc(HOST)} ausblenden</button></div>`;
     }
@@ -434,7 +464,7 @@
     const rows = [["Seitentyp", TYPE_LABEL[page.type]], ["Produkte erkannt", page.products.length], ["Suchfeld", page.search ? "ja" : "nein"], ["Shop-Anpassung", adapter() ? adapter().name : "keine (allgemein)"], ["Grafiken", page.graphics.length || "noch nicht geprüft"], ["KI-Schlüssel", hasKey() ? "ja" : "nein"]];
     return `<div class="keynote diag" style="margin-top:12px">${rows.map(r => `<div><b>${r[0]}:</b> ${esc(r[1])}</div>`).join("")}<div style="margin-top:6px;opacity:.7">${esc(location.hostname)}</div></div>`;
   }
-  function closeLayer() { $("#layer").innerHTML = ""; clearTimeout(breathT); }
+  function closeLayer() { $("#layer").innerHTML = ""; clearTimeout(breathT); breathRun++; if (M.sound) setMode("sound", false); }
 
   /* ---------- needs chat ---------- */
   function needsHTML() {
@@ -811,30 +841,29 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
     if (!art) { slot.innerHTML = ""; ["summary", "simplify", "structure", "snack"].forEach(k => M[k] = false); toast("Auf dieser Seite finde ich keinen Artikeltext."); renderLauncher(); return; }
     const my = ++readerToken;
     const pills = [];
-    if (M.summary) pills.push(["fokus", "Fokus Modus"]);
-    if (M.simplify || M.structure) pills.push(["einfach", "Einfach Modus"]);
+    if (M.simplify) pills.push(["einfach", "Einfach Modus"]);
     if (M.snack) pills.push(["snack", "Snack Modus"]);
     const keep = slot.querySelector(".reader")?.scrollTop || 0;
     slot.innerHTML = `<div class="reader" role="dialog" aria-label="UMO Leseansicht">
       <div class="rbar"><span class="site">${esc(art.site)}</span><button class="pill" data-act="reader-close">Zur Seite</button></div>
       <div class="rbody"><h1 id="rTitle">${esc(art.title)}</h1>${art.byline ? `<p class="byline">${esc(art.byline)}</p>` : ""}
-        <div class="modes">${pills.map(p => `<button class="mpill" data-act="open" data-view="${p[0]}"><span class="dot"></span>${p[1]}</button>`).join("")}${!M.snack ? `<button class="mpill ghost" data-act="read">Vorlesen</button>` : ""}</div>
+        <div class="modes">${pills.map(p => `<button class="mpill" data-act="open" data-view="${p[0]}"><span class="dot"></span>${p[1]}</button>`).join("")}${M.simplify && !M.snack && hasKey() ? `<span class="lvl" role="group" aria-label="Wie einfach?"><button data-act="lvl" data-level="einfach" aria-pressed="${!M.structure}">Einfach</button><button data-act="lvl" data-level="sehr" aria-pressed="${!!M.structure}">Sehr einfach</button></span>` : ""}${!M.snack ? `<button class="mpill ghost" data-act="read">Vorlesen</button>` : ""}</div>
         <div id="rSummary"></div><div id="rMain"></div><div id="rGloss"></div>
         <p class="ainote" style="margin-top:28px">UMO-Leseansicht von ${esc(location.href.slice(0, 80))}. <button data-act="reader-close">Original anzeigen</button></p>
       </div></div>`;
     slot.querySelector(".reader").scrollTop = keep;
-    if (M.summary) loadSummary(my);
+    if (M.summary || M.simplify && !M.snack) loadSummary(my);
     if (M.snack) return startSnack(my);
     snackStop();
     renderBlocks(null);
-    if (M.simplify) await simplify(my);
+    if (M.simplify && hasKey()) await simplify(my);
   }
   const textBlocks = () => page.article.blocks.filter(b => ["p", "h", "list", "q"].includes(b.type) && !b.synthetic);
   function renderBlocks(simp, pendingIds) {
     const main = $("#rMain"); if (!main) return;
     const lv = level(), simple = M.simplify || M.structure;
     let html = "";
-    if (simple && !(M.simplify && !hasKey())) html += `<p class="ainote">${lv === "struktur" ? "Originaltext, in kurze Punkte aufgeteilt." : "Vereinfacht mit KI. Unter jedem Absatz findest du den Originaltext. KI kann Fehler machen."}</p>`;
+    if (simple) html += `<p class="ainote">${lv === "struktur" ? (hasKey() ? "Originaltext, in kurze Punkte aufgeteilt." : "Ohne KI-Schlüssel zeigt UMO den Originaltext in kurzen Punkten. <button data-act=\"options\">Schlüssel eintragen</button>") : "Vereinfacht mit KI. Unter jedem Absatz findest du den Originaltext. KI kann Fehler machen."}</p>`;
     if (M.simplify && simp && simp.error) html += `<div class="err">${simp.error}</div>`;
     for (const b of page.article.blocks) {
       if (b.type === "img" || b.type === "graphic") { html += figureHTML(b); continue; }
@@ -847,7 +876,7 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
     }
     main.innerHTML = html;
     chartRoots.add(shadow);
-    for (const b of page.article.blocks) if (b.gid && CH.has(b.gid)) renderCbox(b.gid);
+    for (const b of page.article.blocks) if (b.gid && CH.has(b.gid) && CH.get(b.gid).explainable) renderCbox(b.gid);
     autoExplainCharts();
   }
   function blockHTML(b, t, withOrig) {
@@ -868,14 +897,14 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
       media = `<iframe class="dwframe" src="${esc(u)}" title="${esc((st.dw && st.dw.title) || "Grafik")}" loading="lazy"></iframe>`;
     } else media = `<div class="ph">${esc(b.label || "Grafik")}<br>Die Grafik ist in die Seite eingebettet.</div>`;
     return `<div class="fig" data-fig="${esc(b.gid || b.id)}">${media}${b.caption ? `<p class="cap">${esc(b.caption)}</p>` : ""}
-      ${b.gid && CH.has(b.gid) ? cboxHTML(b.gid, false) : ""}
+      ${b.gid && CH.has(b.gid) && CH.get(b.gid).explainable ? cboxHTML(b.gid, false) : ""}
       ${b.gid && b.type === "graphic" ? `<div class="acts"><button class="mpill ghost" data-act="show-on-page" data-gid="${esc(b.gid)}">Auf der Seite zeigen</button></div>` : ""}</div>`;
   }
 
   /* ---------- Erklärbox für Grafiken (Leseansicht und Originalseite) ---------- */
-  function cboxHTML(gid, inline) {
+  function cboxHTML(gid, inline, theme) {
     const st = CH.get(gid);
-    return `<div class="cbox${inline ? " inline" : ""}" data-cbox="${esc(gid)}">${inline ? `<button class="cpill" data-act="cx-toggle" data-gid="${esc(gid)}" aria-expanded="${!!st.open}"><span class="dot"></span>${st.open ? "Erklärung ausblenden" : "Grafik einfach erklärt"}</button>` : ""}<div class="cbody"${inline && !st.open ? " hidden" : ""}></div></div>`;
+    return `<div class="cbox${inline ? " inline " + (theme || "t-light") : " t-reader"}" data-cbox="${esc(gid)}">${inline ? `<button class="cpill" data-act="cx-toggle" data-gid="${esc(gid)}" aria-expanded="${!!st.open}"><span class="dot"></span><span class="cpl">${st.open ? "Erklärung ausblenden" : "Grafik einfach erklärt"}</span></button>` : ""}<div class="cbody"${inline && !st.open ? " hidden" : ""}></div></div>`;
   }
   function parseCSV(text) {
     const lines = String(text).replace(/\r/g, "").split("\n").filter(l => l.trim());
@@ -890,35 +919,59 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
     if (!rows.length) return "";
     return `<div class="tw"><table><thead><tr>${rows[0].map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.slice(1).map(r => `<tr>${r.map((c, i) => i ? `<td>${esc(c === "#NV" ? "–" : c)}</td>` : `<th scope="row">${esc(c)}</th>`).join("")}</tr>`).join("")}</tbody></table></div>`;
   }
-  const defaultLevel = () => (M.simplify && M.structure) ? "kurz" : "lang";
+  const defaultLevel = () => M.structure ? "kurz" : "lang";
+  const num = v => { const t = String(v || "").replace(/[%€\s]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."); const n = parseFloat(t); return Number.isFinite(n) ? n : null; };
+  function miniChart(st, x) {
+    const dw = st.dw; if (!dw || !dw.csv) return "";
+    const rows = parseCSV(dw.csv); if (rows.length < 3) return "";
+    const head = rows[0], body = rows.slice(1);
+    let col = -1;
+    if (x && x.spalte) col = head.findIndex(h => h && h.toLowerCase() === String(x.spalte).toLowerCase());
+    if (col < 1) col = head.findIndex((h, i) => i > 0 && body.filter(r => num(r[i]) !== null).length >= body.length * 0.6);
+    if (col < 1) return "";
+    let data = body.map(r => ({ l: r[0], v: num(r[col]), t: r[col] })).filter(d => d.v !== null && d.l);
+    let note = "";
+    if (data.length > 12) { data = data.slice(-12); note = "Die letzten 12 Werte"; }
+    const max = Math.max(...data.map(d => Math.abs(d.v))) || 1, hasNeg = data.some(d => d.v < 0);
+    const top = Math.max(...data.map(d => d.v));
+    return `<figure class="cbars" aria-label="${esc((head[col] || "Werte") + ": " + data.map(d => d.l + " " + d.t).join(", "))}">${head[col] ? `<figcaption>${esc(head[col])}${note ? " · " + note : ""}</figcaption>` : ""}${data.map(d => `<div class="cbar${d.v === top ? " top" : ""}"><span class="cbl">${esc(d.l)}</span><span class="cbt${hasNeg ? " neg" : ""}"><i style="${d.v < 0 ? "right:50%;" : hasNeg ? "left:50%;" : "left:0;"}width:${(Math.abs(d.v) / max * (hasNeg ? 50 : 100)).toFixed(1)}%"></i></span><span class="cbv">${esc(d.t.replace(/%$/, " %"))}</span></div>`).join("")}</figure>`;
+  }
+  const ARROW = { plus: "▲", minus: "▼" };
+  function askPlaceholder(st, x) {
+    if (x && x.fragen && x.fragen[0]) return "z. B. " + x.fragen[0];
+    const rows = st.dw && st.dw.csv ? parseCSV(st.dw.csv) : [];
+    if (rows.length > 2 && rows[1][0]) return `z. B. Was zeigt die Grafik für ${rows[1][0]}?`;
+    return "Frag etwas zu dieser Grafik";
+  }
   function cbodyHTML(st) {
     const lv = st.level || defaultLevel();
-    const x = st.exp[lv], list = a => a && a.length ? `<ul>${a.map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : "";
-    const dw = st.dw;
-    let h = "";
-    if (dw && dw.title) h += `<p class="ctitle">${esc(dw.title)}</p>`;
-    h += `<div class="xtabs" role="group" aria-label="Länge der Erklärung"><button data-act="cx-level" data-gid="${st.gid}" data-level="lang" aria-pressed="${lv === "lang"}">Lange Erklärung</button><button data-act="cx-level" data-gid="${st.gid}" data-level="kurz" aria-pressed="${lv === "kurz"}">Kurze Erklärung</button></div>`;
-    if (st.loading) h += `<div class="thinking" style="padding:4px 0"><span class="dots"><i></i><i></i><i></i></span> ${esc(st.loading)}</div>`;
+    const x = st.exp[lv], dw = st.dw;
+    let h = `<div class="chead">${dw && dw.title ? `<p class="ctitle">${esc(dw.title)}</p>` : `<p class="ctitle">Grafik einfach erklärt</p>`}
+      <span class="cseg" role="group" aria-label="Länge der Erklärung"><button data-act="cx-level" data-gid="${st.gid}" data-level="kurz" aria-pressed="${lv === "kurz"}">Kurz</button><button data-act="cx-level" data-gid="${st.gid}" data-level="lang" aria-pressed="${lv === "lang"}">Ausführlich</button></span></div>`;
+    if (st.loading) h += `<div class="thinking"><span class="dots"><i></i><i></i><i></i></span> ${esc(st.loading)}</div>`;
     else if (x) {
-      h += `${x.kurz ? `<p class="ckurz">${esc(x.kurz)}</p>` : ""}<h4>Was zeigt die Grafik?</h4><p>${esc(x.was)}</p>${x.lesen && x.lesen.length ? `<h4>Wie lese ich die Grafik?</h4>${list(x.lesen)}` : ""}${x.bedeuten && x.bedeuten.length ? `<h4>Was bedeuten die Zahlen?</h4>${list(x.bedeuten)}` : ""}${x.fazit && x.fazit.length ? `<h4>Zusammenfassung</h4>${list(x.fazit)}` : ""}`;
-      h += `<div class="crow"><button class="cbtn" data-act="cx-read" data-gid="${st.gid}">Erklärung vorlesen</button></div>`;
-    } else if (st.err) h += `<p class="cerr">${st.err}</p>`;
-    else h += `<div class="crow"><button class="cbtn on" data-act="cx-explain" data-gid="${st.gid}">Grafik erklären</button></div>`;
-    if (dw && dw.csv) {
-      const rows = parseCSV(dw.csv);
-      if (rows.length > 1) h += `<details class="ctab"${!hasKey() ? " open" : ""}><summary>Die Zahlen aus der Grafik</summary>${tableHTML(rows)}</details>`;
-    }
-    if (dw && (dw.intro || dw.notes || dw.source)) h += `<p class="cmeta">${[dw.intro, dw.notes, dw.source && "Quelle: " + dw.source].filter(Boolean).map(esc).join("<br>")}</p>`;
-    h += `<h4 class="cqh">Frag etwas zur Grafik</h4><div class="cqa">${st.qa.map(m => `<p class="cq me">${esc(m.q)}</p><p class="cq bot">${esc(m.a)}</p>`).join("")}</div>
-      <div class="cask"><button class="round" data-act="cx-mic" data-gid="${st.gid}" aria-label="Frage sprechen">${ICON.wave}</button><input data-qin="${st.gid}" type="text" placeholder="z. B. Wer hat am meisten verloren?" aria-label="Frage zur Grafik"><button class="cbtn on" data-act="cx-ask" data-gid="${st.gid}">Fragen</button></div>
-      <p class="cwarn">${dw && dw.csv ? "UMO nutzt die Zahlen, die in der Grafik stecken." : "UMO liest die Grafik als Bild. Prüfe wichtige Zahlen im Original."}</p>`;
+      h += `<div class="ckern"><span class="dot"></span><p>${esc(x.kern)}</p><button class="cplay" data-act="cx-read" data-gid="${st.gid}" aria-label="Erklärung vorlesen">${ICON.play}</button></div>`;
+      if (lv === "lang" && x.lesen) h += `<p class="cread"><span aria-hidden="true">👁</span>${esc(x.lesen)}</p>`;
+      h += miniChart(st, x);
+      if (x.zahlen && x.zahlen.length) h += `<div class="cchips">${x.zahlen.map(z => `<div class="cchip"><b>${esc(z.wert)}${ARROW[z.richtung] ? `<em>${ARROW[z.richtung]}</em>` : ""}</b><span>${esc(z.label)}</span></div>`).join("")}</div>`;
+      if (lv === "lang" && x.fazit) h += `<p class="cfazit">${esc(x.fazit)}</p>`;
+    } else if (st.err) h += `<p class="cerr">${st.err}</p>${miniChart(st, null)}`;
+    else h += `<div class="crow"><button class="cbtn on" data-act="cx-explain" data-gid="${st.gid}">Grafik erklären</button></div>${miniChart(st, null)}`;
+    if (dw && dw.csv) { const rows = parseCSV(dw.csv); if (rows.length > 1) h += `<details class="ctab"><summary>Alle Zahlen als Tabelle</summary>${tableHTML(rows)}</details>`; }
+    if (dw && (dw.source || dw.notes)) h += `<p class="cmeta">${[dw.notes, dw.source && "Quelle: " + dw.source].filter(Boolean).map(esc).join(" · ")}</p>`;
+    const fr = x && x.fragen ? x.fragen.slice(0, 2) : [];
+    h += `<div class="caskcard"><p class="caskh">${ICON.wave}<span>Frag zur Grafik</span></p>
+      ${st.qa.length ? `<div class="cqa">${st.qa.map(m => `<p class="cq me">${esc(m.q)}</p><p class="cq bot">${esc(m.a)}</p>`).join("")}</div>` : ""}
+      ${fr.length && !st.qa.length ? `<div class="csugg">${fr.map(f => `<button data-act="cx-sugg" data-gid="${st.gid}">${esc(f)}</button>`).join("")}</div>` : ""}
+      <div class="cask"><button class="round cmic" data-act="cx-mic" data-gid="${st.gid}" aria-label="Frage sprechen">${ICON.wave}</button><input data-qin="${st.gid}" type="text" placeholder="${esc(askPlaceholder(st, x))}" aria-label="Frage zur Grafik"><button class="csend" data-act="cx-ask" data-gid="${st.gid}" aria-label="Frage senden">${ICON.next}</button></div>
+      <p class="cwarn">${dw && dw.csv ? "Antworten stützen sich auf die Zahlen der Grafik." : "UMO liest die Grafik als Bild. Prüfe wichtige Zahlen im Original."}</p></div>`;
     return h;
   }
   function renderCbox(gid) {
     const st = CH.get(gid); if (!st) return;
     for (const root of chartRoots) root.querySelectorAll(`[data-cbox="${gid}"]`).forEach(box => {
       const body = box.querySelector(".cbody"); const pill = box.querySelector(".cpill");
-      if (pill) { pill.setAttribute("aria-expanded", String(!!st.open)); pill.lastChild.textContent = st.open ? "Erklärung ausblenden" : "Grafik einfach erklärt"; body.hidden = !st.open; }
+      if (pill) { pill.setAttribute("aria-expanded", String(!!st.open)); pill.querySelector(".cpl").textContent = st.open ? "Erklärung ausblenden" : "Grafik einfach erklärt"; body.hidden = !st.open; }
       const keep = body.querySelector("input[data-qin]")?.value || "";
       body.innerHTML = cbodyHTML(st);
       if (keep) body.querySelector("input[data-qin]").value = keep;
@@ -932,6 +985,17 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
   function dwContext(st) {
     const d = st.dw;
     return `Titel der Grafik: "${d.title}"\nBeschreibung: "${d.intro}"\nHinweis: "${d.notes}"\nQuelle: "${d.source}"\nDiagrammtyp: ${d.type}\nDaten der Grafik (CSV, genau so, wie die Grafik sie zeigt):\n"""\n${d.csv.slice(0, 8000)}\n"""`;
+  }
+  function schemaText(lv, data) {
+    return `Form: kompakt und visuell. Kein Fließtext.
+Antworte nur mit JSON:
+{"kern":"die wichtigste Aussage in einem kurzen Satz, höchstens 14 Wörter",
+ "zahlen":[{"label":"kurzer Name, z. B. eine Partei","wert":"Zahl mit Einheit, genau aus der Grafik","richtung":"plus, minus oder leer"}],
+ ${data ? '"spalte":"Name der Datenspalte, die die Grafik hauptsächlich zeigt",' : ""}
+ "lesen":"${lv === "kurz" ? "" : "ein kurzer Satz: So liest du die Grafik"}",
+ "fazit":"${lv === "kurz" ? "" : "ein kurzer Satz, was das bedeutet"}",
+ "fragen":["zwei kurze Fragen, die man zu genau dieser Grafik stellen kann"]}
+Bei zahlen ${lv === "kurz" ? "höchstens 3" : "höchstens 5"} Einträge, die wichtigsten zuerst.`;
   }
   async function explainChart(gid) {
     const st = CH.get(gid); if (!st || st.loading) return;
@@ -948,16 +1012,19 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
 ${dwContext(st)}
 Regeln: Nutze nur diese Daten. Nenne Zahlen genau so wie in den Daten, mit Komma. Erfinde nichts. Bewerte keine Partei und keine Person. Keine Prognosen. Wenn eine Spalte unklar ist, sag das ehrlich.
 ${needsLine()}
-Antworte nur mit JSON: {"kurz":"ein Satz: die wichtigste Aussage","was":"1 bis 2 Sätze: Was zeigt die Grafik?","lesen":["kurze Sätze: Wie lese ich die Grafik?"],"bedeuten":["die wichtigsten Zahlen, genau wiedergegeben"],"fazit":["2 bis 3 sehr kurze Sätze"]}`, { maxTokens: 1400 });
+${schemaText(lv, true)}`, { maxTokens: 900 });
       } else {
         if (!st.image) { st.loading = "Ich mache ein Bild von der Grafik …"; renderCbox(gid); st.image = await captureGraphic(gid); }
         r = await ask(`Du bist UMO. Du siehst eine Grafik, Tabelle oder ein Bild aus dem Artikel "${art}" auf ${HOST}.
 Erkläre sie für Menschen mit kognitiven Einschränkungen in ${lvText(lv)}.
 Regeln: Lies Zahlen nur ab, wenn sie klar lesbar sind, und gib sie genau wieder. Erfinde nichts. Bewerte nichts politisch. Wenn es ein Foto ohne Daten ist, beschreibe nur kurz, was zu sehen ist, und lass die anderen Felder leer.
 ${needsLine()}
-Antworte nur mit JSON: {"kurz":"ein Satz","was":"1 bis 2 Sätze: Was zeigt das Bild?","lesen":["Wie lese ich die Grafik?"],"bedeuten":["Was bedeuten die Zahlen?"],"fazit":["2 bis 3 sehr kurze Sätze"]}`, { image: st.image, maxTokens: 1200 });
+${schemaText(lv, false)}`, { image: st.image, maxTokens: 900 });
       }
-      st.exp[lv] = { kurz: String(r.kurz || ""), was: String(r.was || ""), lesen: r.lesen || [], bedeuten: r.bedeuten || [], fazit: r.fazit || [] };
+      const str = v => Array.isArray(v) ? v.join(" ") : String(v || "");
+      st.exp[lv] = { kern: str(r.kern), lesen: str(r.lesen), fazit: str(r.fazit), spalte: str(r.spalte),
+        zahlen: (Array.isArray(r.zahlen) ? r.zahlen : []).filter(z => z && z.wert).slice(0, lv === "kurz" ? 3 : 5).map(z => ({ label: String(z.label || ""), wert: String(z.wert), richtung: String(z.richtung || "") })),
+        fragen: (Array.isArray(r.fragen) ? r.fragen : []).map(String).slice(0, 2) };
     } catch (e) { hostEl.style.visibility = ""; st.err = e.code === "capture" ? "Ich konnte die Grafik nicht aufnehmen." : e.code === "gone" ? "Die Grafik ist auf der Seite nicht mehr da." : errText(e); st.lastErr = true; }
     st.loading = ""; renderCbox(gid);
   }
@@ -989,9 +1056,9 @@ Antworte nur mit JSON: {"antwort":"..."}`, { image: useData ? undefined : st.ima
   async function autoExplainCharts() {
     if (autoRunning) return; autoRunning = true;
     try {
-      const gids = page.article ? page.article.blocks.filter(b => b.gid && CH.has(b.gid)).map(b => b.gid) : [];
+      const gids = page.article ? page.article.blocks.filter(b => b.gid && CH.has(b.gid) && CH.get(b.gid).explainable).map(b => b.gid) : [];
       for (const gid of gids) {
-        if (!readerModes() || !(M.simplify || M.structure)) break;
+        if (!readerModes() || !M.simplify) break;
         const st = CH.get(gid);
         await ensureChartData(st); renderCbox(gid);
         if (hasKey() && st.kind === "dw" && st.dw && st.dw.csv) await explainChart(gid);
@@ -1004,14 +1071,13 @@ Antworte nur mit JSON: {"antwort":"..."}`, { image: useData ? undefined : st.ima
     markGraphics();
     const root = articleRoot();
     for (const [gid, st] of CH) {
-      if (!st.el || !st.el.isConnected || !root.contains(st.el) || st.inlineHost) continue;
-      if (st.kind === "img" && st.el.closest("a")) continue;
+      if (!st.el || !st.el.isConnected || !root.contains(st.el) || st.inlineHost || !st.explainable) continue;
       const anchor = st.el.closest("figure, .iframe-container, [class*='chart' i], [class*='embed' i]") || st.el;
       const host = document.createElement("umo-inline");
       host.style.cssText = "all:initial;display:block;margin:12px 0 20px;";
       const sr = host.attachShadow({ mode: "open" });
       if (UMO_SHEET) sr.adoptedStyleSheets = [UMO_SHEET];
-      sr.innerHTML = `<div class="u">${cboxHTML(gid, true)}</div>`;
+      sr.innerHTML = `<div class="u">${cboxHTML(gid, true, isDarkBg(anchor) ? "t-dark" : "t-light")}</div>`;
       sr.addEventListener("click", e => onClick(e, sr));
       sr.addEventListener("keydown", e => onKey(e, sr));
       anchor.after(host);
@@ -1019,6 +1085,13 @@ Antworte nur mit JSON: {"antwort":"..."}`, { image: useData ? undefined : st.ima
       renderCbox(gid);
     }
     if (!inlineHosts.length) toast("Auf dieser Seite finde ich keine Grafiken.");
+  }
+  function isDarkBg(el) {
+    for (let n = el; n; n = n.parentElement) {
+      const m = getComputedStyle(n).backgroundColor.match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/);
+      if (m && (m[4] === undefined || +m[4] > 0.5)) return (0.2126 * m[1] + 0.7152 * m[2] + 0.0722 * m[3]) / 255 < 0.45;
+    }
+    return matchMedia("(prefers-color-scheme: dark)").matches && !getComputedStyle(document.documentElement).backgroundColor.match(/255, 255, 255/);
   }
   function detachInline() {
     inlineHosts.splice(0).forEach(h => { chartRoots.delete(h.shadowRoot); h.remove(); });
@@ -1177,7 +1250,7 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
     S.data = snackCache[key].d; S.note = snackCache[key].note || note; S.idx = 0; S.sent = 0; S.t = 0;
     renderSnack();
   }
-  function snackStop() { S.playing = false; S.token++; clearInterval(S.tick); clearTimeout(S.step); stopSpeak(); }
+  function snackStop() { S.playing = false; S.token++; clearInterval(S.tick); clearTimeout(S.step); (S.steps || []).forEach(clearTimeout); S.steps = []; stopSpeak(); }
   function snackPlay() {
     const sents = sentences(S.data[S.idx].text);
     if (S.sent >= sents.length) S.sent = 0;
@@ -1190,7 +1263,15 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
       const adv = () => { if (my !== S.token) return; S.sent++; go(); };
       if (!(canSpeak && utter(sents[S.sent], adv))) S.step = setTimeout(adv, Math.max(2200, sents[S.sent].split(" ").length * 380));
     };
-    if (canSpeak) speechSynthesis.cancel();
+    stopSpeak(); S.steps = [];
+    if (useEleven()) {
+      // Ganzen Snack in einem Stück mit Amy vorlesen, Sätze im Takt der Audiodauer hervorheben
+      const base = S.sent, rest = sents.slice(base), total = rest.reduce((n, x) => n + x.length, 0) || 1;
+      renderSnack();
+      utter(rest.join(" "), () => { if (my !== S.token) return; S.sent = sents.length; S.playing = false; clearInterval(S.tick); renderSnack(); },
+        dur => { if (my !== S.token || !dur) return; let acc = 0; rest.forEach((x, i) => { const at = acc / total * dur * 1000; acc += x.length; if (i) S.steps.push(setTimeout(() => { if (my === S.token) { S.sent = base + i; renderSnack(); } }, at)); }); });
+      return;
+    }
     go();
   }
   function renderSnack() {
@@ -1211,29 +1292,43 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
     if (cur) inner.style.transform = `translateY(${-Math.max(0, cur.offsetTop - 140)}px)`;
   }
 
-  /* ---------- calming breath ---------- */
-  let breathT;
+  /* ---------- calming breath ----------
+     Ein Lichtkreis atmet mit: 4 Sekunden größer werden (einatmen), 6 Sekunden kleiner (ausatmen).
+     Weiche Farbverläufe, keine springenden Zahlen. Bei „Bewegung reduzieren“ nur Text. */
+  let breathT, breathRun = 0;
   function openBreath() {
     stopSpeak(); if (!M.calmPage) setMode("calmPage", true);
+    const my = ++breathRun;
     $("#layer").innerHTML = `<div class="calmwrap" role="dialog" aria-modal="true" aria-labelledby="calmT"><button class="close" data-act="close">Schließen</button>
-      <div class="calmcard"><h2 id="calmT">Calming Modus</h2><p class="instr" id="instr" aria-live="polite">Schließe deine Augen und atme 4 Sekunden tief ein</p>
-      <div class="bcount" aria-hidden="true"><span class="c-prev" id="cP"></span><span class="c-cur" id="cC">04</span><span class="c-n1" id="c1"></span><span class="c-n2" id="c2"></span></div>
-      <button class="sound" data-act="sound" aria-pressed="${M.sound}">${ICON.phones} Ruhige Klänge ${M.sound ? "an" : "aus"}</button>
-      <div id="cW">${waveSVG(0, "#B163FF", "rgba(255,255,255,.7)", "#000", 3)}</div></div></div>`;
-    let round = 0, phase = "in", n = 4, total = 0; clearTimeout(breathT);
-    const draw = () => { const max = phase === "in" ? 4 : 6; $("#cP").textContent = n < max ? pad2(n + 1) : ""; $("#cC").textContent = pad2(n); $("#c1").textContent = n > 1 ? pad2(n - 1) : ""; $("#c2").textContent = n > 2 ? pad2(n - 2) : ""; $("#cW").innerHTML = waveSVG(Math.min(1, total / 30), "#B163FF", "rgba(255,255,255,.7)", "#000", 3); };
-    const tick = () => {
-      if (!$("#cC")) return; draw();
-      breathT = setTimeout(() => {
-        total++; n--;
-        if (n === 0) {
-          if (phase === "in") { phase = "out"; n = 6; $("#instr").textContent = "Atme jetzt 6 Sekunden langsam aus"; }
-          else { round++; if (round >= 3) { $("#instr").textContent = "Gut gemacht. Du kannst die Augen wieder öffnen."; $("#cC").textContent = "✓"; ["cP", "c1", "c2"].forEach(i => $("#" + i).textContent = ""); return; } phase = "in"; n = 4; $("#instr").textContent = "Atme wieder 4 Sekunden tief ein"; }
-        }
-        tick();
-      }, 1000);
+      <div class="calmcard" id="calmCard"><h2 id="calmT">Atemübung</h2>
+        <p class="instr" id="instr" aria-live="polite">Mach es dir bequem. Atme mit dem Kreis.</p>
+        <div class="orbwrap" aria-hidden="true"><div class="halo h3"></div><div class="halo h2"></div><div class="halo h1"></div><div class="orb" id="orb"><span id="phase"></span></div></div>
+        <div class="rounds" id="rounds" aria-hidden="true">${[0, 1, 2, 3].map(() => "<i></i>").join("")}</div>
+        <div class="calmacts"><button class="sound" data-act="sound" aria-pressed="${M.sound}">${ICON.phones}<span>Ruhige Klänge</span></button></div>
+      </div></div>`;
+    const card = $("#calmCard"), instr = $("#instr"), phase = $("#phase"), rounds = $("#rounds");
+    const ROUNDS = 4;
+    const swell = (to, sec) => { if (audio) { try { const g = audio.master.gain, t = audio.ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(to, t + sec); } catch (e) {} } };
+    const setText = (el, t) => { el.classList.add("fade"); setTimeout(() => { el.textContent = t; el.classList.remove("fade"); }, 350); };
+    const step = (round, inhale) => {
+      if (my !== breathRun || !$("#orb")) return;
+      if (round >= ROUNDS) {
+        card.className = "calmcard done"; setText(phase, ""); setText(instr, "Gut gemacht. Lass dir Zeit, bevor du weiterliest.");
+        swell(0.6, 4); return;
+      }
+      card.className = "calmcard " + (inhale ? "inhale" : "exhale");
+      setText(phase, inhale ? "Einatmen" : "Ausatmen");
+      if (round === 0 && inhale) setText(instr, "Atme langsam durch die Nase ein, während der Kreis wächst.");
+      if (round === 0 && !inhale) setText(instr, "Und ganz langsam wieder aus.");
+      if (round === 1 && inhale) setText(instr, "Gut so. Ganz in deinem Tempo.");
+      [...rounds.children].forEach((d, i) => d.classList.toggle("on", i <= round));
+      swell(inhale ? 1 : 0.45, inhale ? 4 : 6);
+      breathT = setTimeout(() => step(inhale ? round : round + 1, !inhale), inhale ? 4000 : 6000);
     };
-    tick(); $(".calmwrap .close").focus();
+    clearTimeout(breathT);
+    card.className = "calmcard rest";
+    breathT = setTimeout(() => step(0, true), 2200);
+    $(".calmwrap .close").focus();
   }
 
   /* ---------- events ---------- */
@@ -1249,7 +1344,7 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
       case "needs": openSheet("needs"); break;
       case "all": {
         const v = b.dataset.view, on = !modeOn(v);
-        tiles(v).forEach(([k]) => { if (k === "sound" || k === "guide" || k === "charts") { if (!on) setMode(k, false); } else setMode(k, on); });
+        tiles(v).forEach(([k]) => { if (k === "guide" || k === "charts") { if (!on) setMode(k, false); } else setMode(k, on); });
         if (on && (v === "einfach" || v === "snack")) { closeLayer(); break; }
         openSheet(v); break;
       }
@@ -1267,7 +1362,7 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
         closeLayer(); toast(INFO[v].title + " ist an."); break;
       }
       case "breath": openBreath(); break;
-      case "sound": setMode("sound", !M.sound); b.setAttribute("aria-pressed", String(M.sound)); b.innerHTML = `${ICON.phones} Ruhige Klänge ${M.sound ? "an" : "aus"}`; break;
+      case "sound": setMode("sound", !M.sound); b.setAttribute("aria-pressed", String(M.sound)); break;
       case "hide-site": cfg.hiddenSites = [...new Set([...(cfg.hiddenSites || []), HOST])]; chrome.storage.local.set({ hiddenSites: cfg.hiddenSites }); ui.visible = false; closeLayer(); renderLauncher(); break;
       case "chip": sendNeed(b.textContent); break;
       case "chat-send": sendNeed($("#chatIn").value); break;
@@ -1284,14 +1379,15 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
       case "diag": $(".diag") ? $(".diag").remove() : $(".foot").insertAdjacentHTML("beforebegin", diagHTML()); break;
       case "reader-close": ["summary", "simplify", "structure", "snack", "product", "explainPage"].forEach(k => M[k] = false); snackStop(); renderReader(); renderLauncher(); break;
       case "read": {
-        if (canSpeak && speechSynthesis.speaking) { stopSpeak(); break; }
+        if (isSpeaking()) { stopSpeak(); break; }
         const txt = [$("#rTitle")?.textContent, ...$$("#rSummary li").map(x => x.textContent), ...$$("#rMain [data-b] h2, #rMain [data-b] > p, #rMain [data-b] li, #rMain [data-b] blockquote").map(x => x.textContent), ...(M.product || M.explainPage ? $$("#rMain p, #rMain li, #rMain h2").map(x => x.textContent) : [])].filter(Boolean).join(". ");
         speak(txt.slice(0, 30000)); break;
       }
       case "cx-toggle": { const st = CH.get(b.dataset.gid); st.open = !st.open; renderCbox(st.gid); if (st.open && !st.exp[st.level || defaultLevel()]) { ensureChartData(st).then(() => { renderCbox(st.gid); if (hasKey()) explainChart(st.gid); }); } break; }
       case "cx-explain": explainChart(b.dataset.gid); break;
       case "cx-level": { const st = CH.get(b.dataset.gid); st.level = b.dataset.level; explainChart(st.gid); break; }
-      case "cx-read": { const st = CH.get(b.dataset.gid), x = st.exp[st.level || defaultLevel()]; if (x) speak([x.kurz, x.was, ...(x.lesen || []), ...(x.bedeuten || []), ...(x.fazit || [])].filter(Boolean).join(" ")); break; }
+      case "cx-read": { const st = CH.get(b.dataset.gid), x = st.exp[st.level || defaultLevel()]; if (isSpeaking()) { stopSpeak(); break; } if (x) speak([x.kern, x.lesen, ...(x.zahlen || []).map(z => `${z.label}: ${z.wert}`), x.fazit].filter(Boolean).map(t => /[.!?]$/.test(t.trim()) ? t.trim() : t.trim() + ".").join(" ")); break; }
+      case "cx-sugg": askChart(b.dataset.gid, b.textContent, false); break;
       case "cx-ask": { const inp = b.closest(".cbox").querySelector("[data-qin]"); const q = inp.value; inp.value = ""; askChart(b.dataset.gid, q, false); break; }
       case "cx-mic": { stopSpeak(); listen(b, t => askChart(b.dataset.gid, t, true)); break; }
       case "explain": { const key = b.dataset.key, blk = page.article.blocks.find(x => (x.gid || x.id) === key); explainLevel[key] = explainLevel[key] ? null : (M.simplify && M.structure ? "kurz" : "lang"); b.textContent = explainLevel[key] ? "Erklärung ausblenden" : "Grafik erklären"; renderExplain(blk); break; }
@@ -1302,6 +1398,7 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
       case "s-prev": if (S.idx > 0) { snackStop(); S.idx--; S.sent = 0; S.t = 0; renderSnack(); } break;
       case "s-full": setMode("snack", false); break;
       case "qa-send": askProduct($("#qaIn").value); break;
+      case "lvl": M.structure = b.dataset.level === "sehr"; for (const st of CH.values()) st.level = null; renderReader(); break;
       case "retry-reader": {
         for (const k of Object.keys(snackCache)) if (snackCache[k].failed) delete snackCache[k];
         if (summaryCache === null || summaryCache && !summaryCache.pts) summaryCache = null;
@@ -1320,8 +1417,8 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
 
   /* ---------- init ---------- */
   async function init() {
-    const s = await chrome.storage.local.get(["apiKey", "needs", "hiddenSites", "showLauncher"]);
-    Object.assign(cfg, { apiKey: s.apiKey || "", needs: s.needs || "", hiddenSites: s.hiddenSites || [], showLauncher: s.showLauncher !== false });
+    const s = await chrome.storage.local.get(["apiKey", "needs", "hiddenSites", "showLauncher", "elevenKey"]);
+    Object.assign(cfg, { apiKey: s.apiKey || "", needs: s.needs || "", hiddenSites: s.hiddenSites || [], showLauncher: s.showLauncher !== false, elevenKey: s.elevenKey || "" });
     ui.visible = cfg.showLauncher && !cfg.hiddenSites.includes(HOST);
     try {
       const css = await (await fetch(chrome.runtime.getURL("content/umo.css"))).text();
@@ -1347,6 +1444,7 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
     setInterval(() => { if (location.href !== lastHref) { lastHref = location.href; page.article = null; explainData = null; analyse(); renderLauncher(); resumePending(); } }, 1000);
     chrome.storage.onChanged.addListener(ch => {
       if (ch.apiKey) cfg.apiKey = ch.apiKey.newValue || "";
+      if (ch.elevenKey) cfg.elevenKey = ch.elevenKey.newValue || "";
       if (ch.needs) cfg.needs = ch.needs.newValue || "";
       if (ch.showLauncher) { cfg.showLauncher = ch.showLauncher.newValue !== false; ui.visible = cfg.showLauncher && !cfg.hiddenSites.includes(HOST); renderLauncher(); }
     });

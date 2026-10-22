@@ -30,7 +30,7 @@ PLIST
   launchctl bootout "gui/$(id -u)" "$PL" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$PL"
 else
-  ( crontab -l 2>/dev/null | grep -v "update-umo.sh"; echo "*/15 * * * * /bin/bash $BASE/update-umo.sh" ) | crontab -
+  { crontab -l 2>/dev/null | grep -v "update-umo.sh" || true; echo "*/15 * * * * /bin/bash $BASE/update-umo.sh"; } | crontab -
 fi
 echo
 echo "Fertig. UMO liegt in: $DIR"

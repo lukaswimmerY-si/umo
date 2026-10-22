@@ -56,6 +56,21 @@ code{font-size:14px}
   </section>
 
   <section>
+    <h2>Stimme</h2>
+    <p>UMO liest mit der ElevenLabs-Stimme „Amy“ vor. Dafür braucht es einen eigenen ElevenLabs-Schlüssel. Ohne Schlüssel nutzt UMO die Stimme des Browsers.</p>
+    <label for="elKey">ElevenLabs-Schlüssel</label>
+    <input id="elKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk_…">
+    <label for="elVoice">Stimme (Voice-ID)</label>
+    <input id="elVoice" type="text" spellcheck="false" placeholder="xTXZTtb6MuzG0jJR05Y9">
+    <label for="elModel">Modell</label>
+    <select id="elModel">
+      <option value="eleven_multilingual_v2">Multilingual v2 (beste Qualität auf Deutsch)</option>
+      <option value="eleven_flash_v2_5">Flash v2.5 (schneller)</option>
+    </select>
+    <div class="row"><button id="elSave">Speichern</button><button id="elTest" class="ghost">Stimme testen</button><span id="elSt" class="status" role="status"></span></div>
+  </section>
+
+  <section>
     <h2>Updates</h2>
     <p id="upState" class="status">Prüfe …</p>
     <p id="upDetail" class="muted"></p>

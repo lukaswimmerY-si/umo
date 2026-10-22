@@ -1,4 +1,4 @@
-# UMO – Chrome-Extension (Prototyp 0.6.1)
+# UMO – Chrome-Extension (Prototyp 0.7)
 
 UMO legt das Modus-System aus dem Y-si-Prototyp über echte Websites:
 Fokus, Einfach, Snack und Calming, dazu „Teile deine Bedürfnisse“.
@@ -37,6 +37,16 @@ Ohne Schlüssel funktionieren: Ablenkendes ausblenden, Inhalte strukturieren, Sn
 | Jede Seite | Calming | Seite beruhigen, ruhige Klänge, Atemübung |
 
 Das UMO-Symbol in der Browserleiste blendet den Modus-Knopf ein und aus.
+
+## Neu in 0.7
+
+- **Weniger, klarere Modi.** Fokus: „Ablenkungen ausblenden“ (im Shop zusätzlich „Auswahl verdichten“). Einfach: „Einfach lesen“ mit Zusammenfassung oben und der Wahl Einfach oder Sehr einfach in der Leseansicht, dazu „Grafiken auf der Seite erklären“. Snack wie bisher. Calming: „Seite beruhigen“ und „Atemübung“.
+- **Erklärungen kompakt und visuell.** Kernaussage in einem Satz, die wichtigsten Zahlen als Kacheln, ein kleines Balkendiagramm direkt aus den Daten. Umschalten zwischen „Kurz“ und „Ausführlich“.
+- **Frage-Karte.** Farbig abgesetzt, großes Mikrofon, Beispielfragen passend zur Grafik, auch als Platzhalter im Eingabefeld.
+- **Nur wo es nötig ist.** Erklärboxen erscheinen bei Diagrammen, Karten, Tabellen und Infografiken, nicht bei Fotos.
+- **Box passt sich der Seite an.** Dunkle Karte auf dunklen Seiten, helle Karte auf hellen Seiten.
+- **Stimme Amy von ElevenLabs.** In den Einstellungen unter „Stimme“ den ElevenLabs-Schlüssel eintragen. Ohne Schlüssel liest die Browser-Stimme. Im Snack Modus liest Amy jedes Paket am Stück, die Sätze werden im Takt hervorgehoben.
+- **Ruhigere Atemübung.** Ein Lichtkreis atmet mit (4 Sekunden ein, 6 Sekunden aus), weiche Farben, keine springenden Zahlen. Klänge lassen sich direkt in der Übung einschalten und schwellen mit dem Atem an und ab.
 
 ## Neu in 0.6.1
 

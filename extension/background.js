@@ -1,5 +1,6 @@
 // UMO background: holds the API key, talks to Claude, captures graphics.
-const DEFAULTS = { apiKey: "", model: "claude-haiku-5-5", needs: "", hiddenSites: [], showLauncher: true, apiBase: "https://api.anthropic.com" };
+const DEFAULTS = { apiKey: "", model: "claude-haiku-5-5", needs: "", hiddenSites: [], showLauncher: true, apiBase: "https://api.anthropic.com",
+  elevenKey: "", elevenVoice: "xTXZTtb6MuzG0jJR05Y9", elevenModel: "eleven_multilingual_v2", elevenBase: "https://api.elevenlabs.io" };
 
 chrome.runtime.onInstalled.addListener(async details => {
   const cur = await chrome.storage.local.get(Object.keys(DEFAULTS));
@@ -25,6 +26,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === "umo-options") { chrome.runtime.openOptionsPage(); }
+  if (msg.type === "umo-tts") {
+    speakEleven(msg.text, msg.id, sender.tab ? sender.tab.id : null).then(() => sendResponse({ ok: true }))
+      .catch(e => sendResponse({ ok: false, code: e.code || "tts_error", error: String(e.message || e) }));
+    return true;
+  }
+  if (msg.type === "umo-tts-stop") { chrome.runtime.sendMessage({ target: "umo-offscreen", type: "stop" }).catch(() => {}); return false; }
+  if ((msg.type === "umo-tts-ended" || msg.type === "umo-tts-started") && msg.tabId) { chrome.tabs.sendMessage(msg.tabId, msg).catch(() => {}); return false; }
   if (msg.type === "umo-dw") {
     fetchDatawrapper(msg.src).then(data => sendResponse({ ok: true, data })).catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
     return true;
@@ -113,6 +121,39 @@ async function callClaude({ prompt, image, maxTokens }) {
   }
   await logError({ code: lastErr.code, message: lastErr.message, model: model || DEFAULTS.model, sample: lastErr.sample || "" });
   throw lastErr;
+}
+
+/* ElevenLabs-Stimme (Standard: Amy). Audio läuft in einem Offscreen-Dokument der Extension. */
+const ttsCache = new Map();
+async function elevenAudio(text) {
+  const { elevenKey, elevenVoice, elevenModel, elevenBase } = await chrome.storage.local.get(["elevenKey", "elevenVoice", "elevenModel", "elevenBase"]);
+  if (!elevenKey) { const e = new Error("Kein ElevenLabs-Schlüssel"); e.code = "no_tts_key"; throw e; }
+  const voice = elevenVoice || DEFAULTS.elevenVoice, model = elevenModel || DEFAULTS.elevenModel;
+  const key = voice + "|" + model + "|" + text;
+  if (ttsCache.has(key)) return ttsCache.get(key);
+  const res = await fetch(`${(elevenBase || DEFAULTS.elevenBase).replace(/\/$/, "")}/v1/text-to-speech/${voice}?output_format=mp3_44100_128`, {
+    method: "POST",
+    headers: { "xi-api-key": elevenKey, "content-type": "application/json", accept: "audio/mpeg" },
+    body: JSON.stringify({ text: text.slice(0, 4500), model_id: model, voice_settings: { stability: 0.55, similarity_boost: 0.75, speed: 0.95 } })
+  });
+  if (!res.ok) {
+    let d = ""; try { const j = await res.json(); d = (j.detail && (j.detail.message || j.detail.status || JSON.stringify(j.detail))) || ""; } catch (_) {}
+    const e = new Error(`ElevenLabs ${res.status}${d ? ": " + d : ""}`); e.code = res.status === 401 ? "tts_bad_key" : "tts_error"; throw e;
+  }
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  const url = "data:audio/mpeg;base64," + btoa(bin);
+  ttsCache.set(key, url); if (ttsCache.size > 40) ttsCache.delete(ttsCache.keys().next().value);
+  return url;
+}
+async function ensureOffscreen() {
+  const has = chrome.runtime.getContexts ? (await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] })).length > 0 : false;
+  if (!has) await chrome.offscreen.createDocument({ url: "offscreen.html", reasons: ["AUDIO_PLAYBACK"], justification: "UMO liest Inhalte mit der gewählten Stimme vor." });
+}
+async function speakEleven(text, id, tabId) {
+  const url = await elevenAudio(String(text || "").trim());
+  await ensureOffscreen();
+  await chrome.runtime.sendMessage({ target: "umo-offscreen", type: "play", url, id, tabId });
 }
 
 /* Datawrapper-Grafiken (z. B. charts.bpb.de, datawrapper.dwcdn.net): Daten und Beschreibung direkt holen.
