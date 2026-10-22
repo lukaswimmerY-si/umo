@@ -79,7 +79,9 @@ $("elTest").onclick = async () => {
   await saveVoice(); elStatus("Lade Stimme …", true);
   chrome.runtime.sendMessage({ type: "umo-tts", text: "Hallo, ich bin UMO. Ich lese dir Texte und Grafiken in einfacher Sprache vor.", id: 0 }, r => {
     if (r && r.ok) elStatus("Läuft.", true);
-    else elStatus(r && r.code === "no_tts_key" ? "Bitte zuerst einen Schlüssel eintragen." : r && r.code === "tts_bad_key" ? "Der Schlüssel wird nicht akzeptiert." : "Fehler: " + (r && r.error || "keine Antwort"), false);
+    else elStatus(({ no_tts_key: "Bitte zuerst einen Schlüssel eintragen.", tts_bad_key: "Der Schlüssel wird nicht akzeptiert.",
+      tts_voice: "Amy ist in eurem ElevenLabs-Konto nicht verfügbar. In ElevenLabs unter „Voices“ die Stimme Amy zu „My Voices“ hinzufügen.",
+      tts_plan: "Euer ElevenLabs-Tarif erlaubt diese Stimme über die Schnittstelle nicht.", tts_quota: "Das ElevenLabs-Guthaben ist aufgebraucht." }[r && r.code] || "Fehler") + (r && r.error ? " (" + r.error + ")" : ""), false);
   });
 };
 loadVoice();

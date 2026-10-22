@@ -34,7 +34,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "umo-tts-stop") { chrome.runtime.sendMessage({ target: "umo-offscreen", type: "stop" }).catch(() => {}); return false; }
   if ((msg.type === "umo-tts-ended" || msg.type === "umo-tts-started") && msg.tabId) { chrome.tabs.sendMessage(msg.tabId, msg).catch(() => {}); return false; }
   if (msg.type === "umo-dw") {
-    fetchDatawrapper(msg.src).then(data => sendResponse({ ok: true, data })).catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
+    (/23degrees\.io/i.test(msg.src) ? fetch23degrees(msg.src) : fetchDatawrapper(msg.src)).then(data => sendResponse({ ok: true, data })).catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
     return true;
   }
   return false;
@@ -137,8 +137,15 @@ async function elevenAudio(text) {
     body: JSON.stringify({ text: text.slice(0, 4500), model_id: model, voice_settings: { stability: 0.55, similarity_boost: 0.75, speed: 0.95 } })
   });
   if (!res.ok) {
-    let d = ""; try { const j = await res.json(); d = (j.detail && (j.detail.message || j.detail.status || JSON.stringify(j.detail))) || ""; } catch (_) {}
-    const e = new Error(`ElevenLabs ${res.status}${d ? ": " + d : ""}`); e.code = res.status === 401 ? "tts_bad_key" : "tts_error"; throw e;
+    let d = "", st = ""; try { const j = await res.json(); st = (j.detail && j.detail.status) || ""; d = (j.detail && (j.detail.message || j.detail.status || JSON.stringify(j.detail))) || ""; } catch (_) {}
+    const all = (st + " " + d).toLowerCase();
+    const e = new Error(`ElevenLabs ${res.status}${d ? ": " + d : ""}`);
+    e.code = /quota|credits|character limit/.test(all) ? "tts_quota"
+      : /voice_not_found|voice.*not.*found|library|shared voice|add.*voice/.test(all) || res.status === 404 ? "tts_voice"
+      : /paid|plan|subscription|upgrade|free users/.test(all) || res.status === 402 ? "tts_plan"
+      : res.status === 401 || /invalid_api_key|api key/.test(all) ? "tts_bad_key" : "tts_error";
+    await logError({ code: e.code, message: e.message, model: "ElevenLabs " + voice });
+    throw e;
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
   let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
@@ -158,6 +165,37 @@ async function speakEleven(text, id, tabId) {
 
 /* Datawrapper-Grafiken (z. B. charts.bpb.de, datawrapper.dwcdn.net): Daten und Beschreibung direkt holen.
    Eingebettete Versionen leiten oft auf eine neuere Version weiter, der folgen wir. */
+/* 23degrees (z. B. tagesschau.de): content.json + data/id/<dataId>.json, Daten im Langformat */
+const quillText = q => { try { return (JSON.parse(q).ops || []).map(o => typeof o.insert === "string" ? o.insert : "").join("").replace(/\s+/g, " ").trim(); } catch (e) { return String(q || "").trim(); } };
+async function fetch23degrees(src) {
+  const m = new URL(src).pathname.match(/\/embed\/([^/?#]+)/);
+  if (!m) throw new Error("Unbekannte 23degrees-Adresse");
+  const base = `https://g-cdn.23degrees.io/${m[1]}/`;
+  const c = await (await fetch(base + "content.json")).json();
+  const ts = c.typeSpecific || {};
+  const dataId = ts.dataId || c.dataId;
+  if (!dataId) throw new Error("Keine Daten-ID");
+  const rows = (await (await fetch(`${base}data/id/${dataId}.json`)).json()).data || [];
+  const fields = ts.fields || {};
+  const names = Object.keys(fields).sort((a, b) => (fields[a].sequence || 0) - (fields[b].sequence || 0) || a.localeCompare(b));
+  const valF = names.filter(n => fields[n].fieldType === "valueField" || fields[n].dataType === "number");
+  const catF = names.filter(n => !valF.includes(n));
+  const title = n => fields[n] && fields[n].title || n;
+  const esc = v => { const t = typeof v === "number" ? String(v).replace(".", ",") : String(v ?? ""); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  let csv = "";
+  if (catF.length >= 2 && valF.length === 1) {
+    // Pivot: erste Kategorie als Zeilen, zweite als Spalten
+    const [r, k] = catF, v = valF[0];
+    const cols = [...new Set(rows.map(x => x[k]))], keys = [...new Set(rows.map(x => x[r]))];
+    csv = [title(r), ...cols].map(esc).join(",") + "\n" + keys.map(key => [key, ...cols.map(col => { const hit = rows.find(x => x[r] === key && x[k] === col); return hit ? hit[v] : ""; })].map(esc).join(",")).join("\n");
+  } else {
+    const cols = [...catF, ...valF];
+    csv = cols.map(n => esc(title(n))).join(",") + "\n" + rows.map(x => cols.map(n => esc(x[n])).join(",")).join("\n");
+  }
+  const pub = ts.data && ts.data.publisher;
+  return { title: quillText(c.name) || c.fileName || "", description: quillText(c.subTitle), source: pub ? quillText(pub.name).replace(/^Quelle:\s*/i, "") : "", notes: quillText(c.description), csv, provider: "23degrees" };
+}
+
 async function fetchDatawrapper(src) {
   const u0 = new URL(src);
   let url = u0.origin + u0.pathname.replace(/\/?$/, "/");

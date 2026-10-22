@@ -1,4 +1,4 @@
-# UMO – Chrome-Extension (Prototyp 0.7)
+# UMO – Chrome-Extension (Prototyp 0.7.1)
 
 UMO legt das Modus-System aus dem Y-si-Prototyp über echte Websites:
 Fokus, Einfach, Snack und Calming, dazu „Teile deine Bedürfnisse“.
@@ -37,6 +37,12 @@ Ohne Schlüssel funktionieren: Ablenkendes ausblenden, Inhalte strukturieren, Sn
 | Jede Seite | Calming | Seite beruhigen, ruhige Klänge, Atemübung |
 
 Das UMO-Symbol in der Browserleiste blendet den Modus-Knopf ein und aus.
+
+## Neu in 0.7.1
+
+- Grafiken von 23degrees (z. B. tagesschau.de) werden erkannt, ihre Zahlen direkt gelesen und erklärt.
+- Eingebettete Grafiken unbekannter Dienste werden erkannt, wenn sie im Artikel stehen und kein Video, Social-Media-Beitrag oder Werbung sind.
+- Wenn Amy nicht sprechen kann, sagt UMO genau warum (Schlüssel, Stimme nicht im Konto, Tarif, Guthaben). Der Grund steht auch in den Einstellungen unter „Letzte KI-Fehler“.
 
 ## Neu in 0.7
 

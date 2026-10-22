@@ -192,7 +192,12 @@
   const CH = new Map();            // gid -> Zustand der Grafik
   const chartRoots = new Set();    // Shadow-Roots, in denen Erklärboxen stehen
   let UMO_SHEET = null;
-  function isDwSrc(src) { try { const u = new URL(src); return /datawrapper/i.test(u.hostname) || /^\/[A-Za-z0-9]{5}\/\d+\/?$/.test(u.pathname); } catch (e) { return false; } }
+  // Grafik-Dienste, deren Daten UMO direkt lesen kann
+  function isDwSrc(src) { try { const u = new URL(src); return /datawrapper|23degrees\.io/i.test(u.hostname) || /^\/[A-Za-z0-9]{5}\/\d+\/?$/.test(u.pathname); } catch (e) { return false; } }
+  // Bekannte Grafik-Dienste und typische Wörter in Grafik-Adressen
+  const VIZ_RE = /datawrapper|23degrees|flourish|infogram|everviz|highcharts|plotly|tableau|observablehq|q\.st\.nzz|chartbeat-no|pinpoint|arcgis|mapbox|chart|grafik|graphic|statista|diagram|karte|map|viz/i;
+  // Eingebettete Inhalte, die keine Grafik sind
+  const NOT_VIZ_RE = /youtube|youtu\.be|vimeo|twitter|x\.com|instagram|facebook|tiktok|spotify|soundcloud|podcast|audio|player|video|ads?[.\-/]|doubleclick|googlesyndication|recaptcha|consent|comment|disqus|newsletter|outbrain|taboola/i;
   function articleRoot() { return document.querySelector("article") || document.querySelector("main, [role=main]") || document.body; }
   let lazyDone = false;
   async function prepareLazy() {
@@ -214,7 +219,6 @@
   }
   function markGraphics() {
     page.graphics = [];
-    const vizRe = /datawrapper|flourish|infogram|chart|grafik|graphic|statista|diagram|karte|map/i;
     let n = Math.max(0, ...[...document.querySelectorAll("[data-umo-gid]")].map(e => +e.dataset.umoGid.slice(1) + 1));
     for (const el of document.querySelectorAll("img,svg,canvas,iframe,table")) {
       if (el.closest("umo-root,umo-inline") || el.closest("header,nav,footer")) continue;
@@ -222,7 +226,14 @@
       const r = el.getBoundingClientRect();
       if (el.tagName !== "TABLE" && (r.width < 260 || r.height < 140)) continue;
       const src = el.getAttribute("src") || "";
-      if (el.tagName === "IFRAME" && !(vizRe.test((el.src || "") + " " + (el.title || "")) || isDwSrc(el.src) || (/^data:/.test(src) && articleRoot().contains(el)))) continue;
+      if (el.tagName === "IFRAME") {
+        const sig = (el.src || "") + " " + (el.title || "") + " " + (el.getAttribute("aria-label") || "") + " " + (el.name || "");
+        const inArticle = articleRoot().contains(el);
+        const known = VIZ_RE.test(sig) || isDwSrc(el.src) || (/^data:/.test(src) && inArticle);
+        // Unbekannter Dienst: im Artikeltext, groß genug und kein Video/Social/Werbung -> wahrscheinlich eine Grafik
+        const likely = inArticle && r.width >= 300 && r.height >= 200 && /^https?:/.test(el.src || "") && !NOT_VIZ_RE.test(sig) && new URL(el.src).hostname !== location.hostname;
+        if (NOT_VIZ_RE.test(sig) && !isDwSrc(el.src) || !(known || likely)) continue;
+      }
       if (el.tagName === "TABLE" && (el.rows?.length || 0) < 3) continue;
       if (!el.dataset.umoGid) el.dataset.umoGid = "g" + (n++);
       const gid = el.dataset.umoGid, kind = el.tagName === "IFRAME" && isDwSrc(el.src) ? "dw" : el.tagName.toLowerCase();
@@ -319,6 +330,12 @@
   let ttsSeq = 0, speakingFlag = false, ttsWarned = false;
   const ttsWait = new Map();
   const useEleven = () => !!cfg.elevenKey;
+  const TTS_MSG = {
+    tts_bad_key: "Der ElevenLabs-Schlüssel wird nicht akzeptiert. Ich nutze die Browser-Stimme.",
+    tts_voice: "Amy ist in eurem ElevenLabs-Konto nicht verfügbar. Fügt sie in ElevenLabs unter „Voices“ zu „My Voices“ hinzu. Bis dahin nutze ich die Browser-Stimme.",
+    tts_plan: "Euer ElevenLabs-Tarif erlaubt Amy über die Schnittstelle nicht. Bis dahin nutze ich die Browser-Stimme.",
+    tts_quota: "Das ElevenLabs-Guthaben ist aufgebraucht. Ich nutze die Browser-Stimme."
+  };
   function browserUtter(text, onend) {
     if (!canSpeak) return false;
     const u = new SpeechSynthesisUtterance(text); u.lang = "de-DE"; u.rate = 0.95;
@@ -333,11 +350,12 @@
       send({ type: "umo-tts", text, id }).then(r => {
         if (r.ok || !ttsWait.has(id)) return;
         ttsWait.delete(id); speakingFlag = false;
-        if (!ttsWarned) { ttsWarned = true; toast(r.code === "tts_bad_key" ? "Der ElevenLabs-Schlüssel wird nicht akzeptiert. Ich nutze die Browser-Stimme." : "Die Stimme Amy ist gerade nicht erreichbar. Ich nutze die Browser-Stimme."); }
+        if (!ttsWarned) { ttsWarned = true; toast(TTS_MSG[r.code] || "Die Stimme Amy ist gerade nicht erreichbar (" + String(r.error || "").slice(0, 80) + "). Ich nutze die Browser-Stimme.", 7000); }
         if (!browserUtter(text, onend)) onend && onend();
       });
       return true;
     }
+    if (!ttsWarned) { ttsWarned = true; toast("Ohne ElevenLabs-Schlüssel lese ich mit der Browser-Stimme. Den Schlüssel trägst du in den Einstellungen unter „Stimme“ ein.", 6000); }
     return browserUtter(text, onend);
   }
   chrome.runtime.onMessage.addListener(m => {
@@ -377,7 +395,7 @@
   }
   function soundOff() { if (!audio) return; const { ctx, master } = audio; audio = null; try { master.gain.linearRampToValueAtTime(0, ctx.currentTime + 1); } catch (e) {} setTimeout(() => ctx.close().catch(() => {}), 1200); }
   let toastT;
-  function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3000); }
+  function toast(m, ms) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, ms || 3000); }
 
   /* ---------- modes ---------- */
   const INFO = {
