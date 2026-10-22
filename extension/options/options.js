@@ -68,20 +68,46 @@ async function renderErrors() {
 chrome.storage.onChanged.addListener(ch => { if (ch.lastErrors) renderErrors(); });
 renderErrors();
 
-async function loadVoice() {
-  const s = await chrome.storage.local.get(["elevenKey", "elevenVoice", "elevenModel"]);
-  $("elKey").value = s.elevenKey || ""; $("elVoice").value = s.elevenVoice || "xTXZTtb6MuzG0jJR05Y9"; $("elModel").value = s.elevenModel || "eleven_multilingual_v2";
-}
+const SAMPLE = "Hallo, ich bin UMO. Ich lese dir Texte in Ruhe vor. Wenn dir etwas zu schnell geht, kannst du das Tempo ändern.";
+const voiceScore = v => (/premium/i.test(v.name) ? 6 : 0) + (/erweitert|enhanced|verbessert/i.test(v.name) ? 5 : 0) + (/natural|neural|online/i.test(v.name) ? 5 : 0)
+  + (/google deutsch/i.test(v.name) ? 3 : 0) + (/anna|petra|helena|katja|amala|seraphina|marlene|vicki|hedda/i.test(v.name) ? 2 : 0) + (/^de-DE/i.test(v.lang) ? 1 : 0)
+  - (/grandma|grandpa|oma|opa|eddy|flo|reed|rocko|sandy|shelley|bells|bubbles|cellos|jester|organ|trinoids|whisper|zarvox|bad news|good news|boing|albert|bahh|fred|junior|kathy|ralph|superstar|wobble/i.test(v.name) ? 10 : 0);
+const vStatus = (t, ok) => { $("vSt").textContent = t; $("vSt").className = "status " + (ok ? "ok" : "bad"); };
 const elStatus = (t, ok) => { $("elSt").textContent = t; $("elSt").className = "status " + (ok ? "ok" : "bad"); };
-async function saveVoice() { await chrome.storage.local.set({ elevenKey: $("elKey").value.trim(), elevenVoice: $("elVoice").value.trim() || "xTXZTtb6MuzG0jJR05Y9", elevenModel: $("elModel").value }); }
-$("elSave").onclick = async () => { await saveVoice(); elStatus("Gespeichert.", true); };
+let saved = {};
+function fillVoices() {
+  const vs = speechSynthesis.getVoices().filter(v => /^de/i.test(v.lang)).sort((a, b) => voiceScore(b) - voiceScore(a));
+  const sel = $("vName"); sel.textContent = "";
+  const auto = document.createElement("option"); auto.value = ""; auto.textContent = vs.length ? `Automatisch (jetzt: ${vs[0].name})` : "Automatisch"; sel.appendChild(auto);
+  vs.forEach((v, i) => { const o = document.createElement("option"); o.value = v.name; o.textContent = v.name + (i === 0 ? " · empfohlen" : "") + (v.localService ? "" : " · braucht Internet"); sel.appendChild(o); });
+  sel.value = saved.voiceName && vs.some(v => v.name === saved.voiceName) ? saved.voiceName : "";
+  if (!vs.length) vStatus("Auf diesem Rechner ist keine deutsche Stimme zu finden.", false);
+}
+async function loadVoice() {
+  saved = await chrome.storage.local.get(["elevenKey", "elevenVoice", "elevenModel", "voiceEngine", "voiceName", "voiceRate"]);
+  $("vRate").value = String(saved.voiceRate || 0.9);
+  $("elOn").checked = saved.voiceEngine === "eleven";
+  $("elKey").value = saved.elevenKey || ""; $("elVoice").value = saved.elevenVoice || "xTXZTtb6MuzG0jJR05Y9"; $("elModel").value = saved.elevenModel || "eleven_multilingual_v2";
+  fillVoices(); speechSynthesis.onvoiceschanged = fillVoices;
+}
+$("vTest").onclick = () => {
+  speechSynthesis.cancel();
+  const vs = speechSynthesis.getVoices().filter(v => /^de/i.test(v.lang)).sort((a, b) => voiceScore(b) - voiceScore(a));
+  const v = vs.find(x => x.name === $("vName").value) || vs[0];
+  const u = new SpeechSynthesisUtterance(SAMPLE); if (v) { u.voice = v; u.lang = v.lang; } u.rate = +$("vRate").value;
+  speechSynthesis.speak(u); vStatus(v ? "Du hörst: " + v.name : "Du hörst die Standardstimme.", true);
+};
+$("vSave").onclick = async () => { await chrome.storage.local.set({ voiceName: $("vName").value, voiceRate: +$("vRate").value }); vStatus("Gespeichert.", true); };
+$("vName").onchange = $("vRate").onchange = () => $("vSave").click();
+async function saveEleven() { await chrome.storage.local.set({ voiceEngine: $("elOn").checked ? "eleven" : "system", elevenKey: $("elKey").value.trim(), elevenVoice: $("elVoice").value.trim() || "xTXZTtb6MuzG0jJR05Y9", elevenModel: $("elModel").value }); }
+$("elOn").onchange = saveEleven;
+$("elSave").onclick = async () => { await saveEleven(); elStatus("Gespeichert.", true); };
 $("elTest").onclick = async () => {
-  await saveVoice(); elStatus("Lade Stimme …", true);
-  chrome.runtime.sendMessage({ type: "umo-tts", text: "Hallo, ich bin UMO. Ich lese dir Texte und Grafiken in einfacher Sprache vor.", id: 0 }, r => {
+  await saveEleven(); elStatus("Lade Stimme …", true);
+  chrome.runtime.sendMessage({ type: "umo-tts", text: SAMPLE, id: 0 }, r => {
     if (r && r.ok) elStatus("Läuft.", true);
     else elStatus(({ no_tts_key: "Bitte zuerst einen Schlüssel eintragen.", tts_bad_key: "Der Schlüssel wird nicht akzeptiert.",
-      tts_voice: "Amy ist in eurem ElevenLabs-Konto nicht verfügbar. In ElevenLabs unter „Voices“ die Stimme Amy zu „My Voices“ hinzufügen.",
-      tts_plan: "Euer ElevenLabs-Tarif erlaubt diese Stimme über die Schnittstelle nicht.", tts_quota: "Das ElevenLabs-Guthaben ist aufgebraucht." }[r && r.code] || "Fehler") + (r && r.error ? " (" + r.error + ")" : ""), false);
+      tts_voice: "Diese Stimme ist in eurem ElevenLabs-Konto nicht verfügbar.", tts_plan: "Euer ElevenLabs-Tarif erlaubt diese Stimme nicht.", tts_quota: "Das ElevenLabs-Guthaben ist aufgebraucht." }[r && r.code] || "Fehler") + (r && r.error ? " (" + r.error + ")" : ""), false);
   });
 };
 loadVoice();

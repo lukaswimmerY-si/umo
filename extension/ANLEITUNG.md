@@ -1,4 +1,4 @@
-# UMO – Chrome-Extension (Prototyp 0.7.1)
+# UMO – Chrome-Extension (Prototyp 0.7.2)
 
 UMO legt das Modus-System aus dem Y-si-Prototyp über echte Websites:
 Fokus, Einfach, Snack und Calming, dazu „Teile deine Bedürfnisse“.
@@ -37,6 +37,12 @@ Ohne Schlüssel funktionieren: Ablenkendes ausblenden, Inhalte strukturieren, Sn
 | Jede Seite | Calming | Seite beruhigen, ruhige Klänge, Atemübung |
 
 Das UMO-Symbol in der Browserleiste blendet den Modus-Knopf ein und aus.
+
+## Neu in 0.7.2
+
+- **Kostenlose, natürliche Stimme.** UMO liest mit der besten deutschen Stimme auf dem Rechner vor, satzweise und in ruhigem Tempo. In den Einstellungen unter „Stimme“ kann man jede Stimme probehören und auswählen. Auf dem Mac lassen sich „Anna (Premium)“ oder „Petra (Premium)“ kostenlos nachladen (Anleitung in den Einstellungen). ElevenLabs ist nur noch eine Option.
+- **Grafiken einfacher erklärt.** Ein Satz mit dem Wichtigsten, dazu ein paar kurze Sätze in Alltagssprache und ein Beispiel („Stell dir 100 Menschen vor …“). Keine zusätzlichen Diagramme oder Zahlen-Kacheln mehr. Die genauen Zahlen lassen sich bei Bedarf aufklappen.
+- **Fragen wie im Gespräch.** Vorschläge wie „Was heißt das für mich?“ statt Fragen zur Darstellung.
 
 ## Neu in 0.7.1
 

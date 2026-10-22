@@ -47,7 +47,7 @@
 
   /* ---------- state ---------- */
   const HOST = location.hostname.replace(/^www\./, "");
-  const cfg = { apiKey: "", needs: "", hiddenSites: [], showLauncher: true, elevenKey: "" };
+  const cfg = { apiKey: "", needs: "", hiddenSites: [], showLauncher: true, elevenKey: "", voiceEngine: "system", voiceName: "", voiceRate: 0.9 };
   const M = { noise: false, guide: false, summary: false, simplify: false, structure: false, snack: false, product: false, explainPage: false, charts: false, calmPage: false, sound: false };
   const ui = { view: null, chat: [], chatMode: "text", visible: true };
   const page = { type: "seite", isArticle: false, products: [], search: null, article: null, graphics: [] };
@@ -323,25 +323,48 @@
     if (c === "stale") return "UMO wurde gerade aktualisiert. Lade die Seite neu.";
     return `Die KI hat gerade nicht geantwortet.${again}${detail}`;
   }
+  const TONE = `So sprichst du: warm, ruhig und menschlich, wie eine freundliche Person, die neben einem sitzt. Du-Form. Kurze Sätze mit höchstens 12 Wörtern. Alltagswörter statt Fachwörter. Ist ein Fachwort nötig, erkläre es in wenigen Wörtern, zum Beispiel: Zweitstimme, also die Stimme für eine Partei.
+Mach Zahlen greifbar und runde sie so, dass es noch stimmt: „etwa 23 von 100 Menschen“ statt „22,6 Prozent“, „fast ein Viertel“, „gut 400 Milliarden Euro“. Sag nie „Prozentpunkte“.
+Sprich über das, was in der Welt passiert ist, nicht über die Darstellung. Benutze nie die Wörter Grafik, Diagramm, Balken, Spalte, Zeile, Achse, Legende, Tabelle, Daten oder Datensatz.
+Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
   const needsLine = () => cfg.needs ? `Wünsche der Person, bitte berücksichtigen: """${cfg.needs.slice(0, 500)}"""` : "";
 
   /* ---------- speech & sound ---------- */
   const canSpeak = "speechSynthesis" in window;
   let ttsSeq = 0, speakingFlag = false, ttsWarned = false;
   const ttsWait = new Map();
-  const useEleven = () => !!cfg.elevenKey;
+  const useEleven = () => cfg.voiceEngine === "eleven" && !!cfg.elevenKey;
+  // Natürlichste deutsche Stimme finden: Premium/Erweitert/Natural vor Standard, Spaßstimmen ganz hinten
+  const voiceScore = v => (/premium/i.test(v.name) ? 6 : 0) + (/erweitert|enhanced|verbessert/i.test(v.name) ? 5 : 0) + (/natural|neural|online/i.test(v.name) ? 5 : 0)
+    + (/google deutsch/i.test(v.name) ? 3 : 0) + (/anna|petra|helena|katja|amala|seraphina|marlene|vicki|hedda/i.test(v.name) ? 2 : 0) + (/^de-DE/i.test(v.lang) ? 1 : 0)
+    - (/grandma|grandpa|oma|opa|eddy|flo|reed|rocko|sandy|shelley|bells|bubbles|cellos|jester|organ|trinoids|whisper|zarvox|bad news|good news|boing|albert|bahh|fred|junior|kathy|ralph|superstar|wobble/i.test(v.name) ? 10 : 0);
+  function pickVoice() {
+    if (!canSpeak) return null;
+    const vs = speechSynthesis.getVoices().filter(v => /^de/i.test(v.lang));
+    if (!vs.length) return null;
+    return (cfg.voiceName && vs.find(v => v.name === cfg.voiceName)) || vs.sort((a, b) => voiceScore(b) - voiceScore(a))[0];
+  }
+  if (canSpeak) { speechSynthesis.getVoices(); speechSynthesis.addEventListener && speechSynthesis.addEventListener("voiceschanged", () => {}); }
   const TTS_MSG = {
     tts_bad_key: "Der ElevenLabs-Schlüssel wird nicht akzeptiert. Ich nutze die Browser-Stimme.",
     tts_voice: "Amy ist in eurem ElevenLabs-Konto nicht verfügbar. Fügt sie in ElevenLabs unter „Voices“ zu „My Voices“ hinzu. Bis dahin nutze ich die Browser-Stimme.",
     tts_plan: "Euer ElevenLabs-Tarif erlaubt Amy über die Schnittstelle nicht. Bis dahin nutze ich die Browser-Stimme.",
-    tts_quota: "Das ElevenLabs-Guthaben ist aufgebraucht. Ich nutze die Browser-Stimme."
+    tts_quota: "Das ElevenLabs-Guthaben ist aufgebraucht. Ich lese mit der kostenlosen Stimme weiter."
   };
+  // Satzweise sprechen: klingt ruhiger und umgeht das Abbrechen langer Texte bei Online-Stimmen
+  let utterSeq = 0;
   function browserUtter(text, onend) {
     if (!canSpeak) return false;
-    const u = new SpeechSynthesisUtterance(text); u.lang = "de-DE"; u.rate = 0.95;
-    const v = speechSynthesis.getVoices().find(v => v.lang && v.lang.toLowerCase().startsWith("de")); if (v) u.voice = v;
-    u.onend = u.onerror = () => { speakingFlag = false; onend && onend(); };
-    speakingFlag = true; speechSynthesis.speak(u); return true;
+    const v = pickVoice(), my = ++utterSeq;
+    const parts = sentences(text).reduce((acc, t) => { const last = acc[acc.length - 1]; if (last && (last + " " + t).length < 180) acc[acc.length - 1] = last + " " + t; else acc.push(t); return acc; }, []);
+    if (!parts.length) return false;
+    speakingFlag = true;
+    parts.forEach((t, i) => {
+      const u = new SpeechSynthesisUtterance(t); u.lang = v ? v.lang : "de-DE"; u.rate = +cfg.voiceRate || 0.9; u.pitch = 1; if (v) u.voice = v;
+      if (i === parts.length - 1) u.onend = u.onerror = () => { if (my !== utterSeq) return; speakingFlag = false; onend && onend(); };
+      speechSynthesis.speak(u);
+    });
+    return true;
   }
   // Spricht mit ElevenLabs (Amy), sonst mit der Browser-Stimme. onstart(dauerInSekunden) nur bei ElevenLabs.
   function utter(text, onend, onstart) {
@@ -355,7 +378,6 @@
       });
       return true;
     }
-    if (!ttsWarned) { ttsWarned = true; toast("Ohne ElevenLabs-Schlüssel lese ich mit der Browser-Stimme. Den Schlüssel trägst du in den Einstellungen unter „Stimme“ ein.", 6000); }
     return browserUtter(text, onend);
   }
   chrome.runtime.onMessage.addListener(m => {
@@ -363,7 +385,7 @@
     if (m.type === "umo-tts-ended") { const w = ttsWait.get(m.id); if (!w) return; ttsWait.delete(m.id); speakingFlag = false; w.onend && w.onend(); }
   });
   const isSpeaking = () => speakingFlag || (canSpeak && speechSynthesis.speaking);
-  function stopSpeak() { ttsWait.clear(); speakingFlag = false; if (useEleven()) send({ type: "umo-tts-stop" }); if (canSpeak) speechSynthesis.cancel(); }
+  function stopSpeak() { ttsWait.clear(); speakingFlag = false; utterSeq++; if (useEleven()) send({ type: "umo-tts-stop" }); if (canSpeak) speechSynthesis.cancel(); }
   function speak(t) { stopSpeak(); if (!utter(String(t).slice(0, 4500))) toast("Vorlesen geht in diesem Browser nicht."); }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   function listen(btn, onText, onFail) {
@@ -939,50 +961,27 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
   }
   const defaultLevel = () => M.structure ? "kurz" : "lang";
   const num = v => { const t = String(v || "").replace(/[%€\s]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."); const n = parseFloat(t); return Number.isFinite(n) ? n : null; };
-  function miniChart(st, x) {
-    const dw = st.dw; if (!dw || !dw.csv) return "";
-    const rows = parseCSV(dw.csv); if (rows.length < 3) return "";
-    const head = rows[0], body = rows.slice(1);
-    let col = -1;
-    if (x && x.spalte) col = head.findIndex(h => h && h.toLowerCase() === String(x.spalte).toLowerCase());
-    if (col < 1) col = head.findIndex((h, i) => i > 0 && body.filter(r => num(r[i]) !== null).length >= body.length * 0.6);
-    if (col < 1) return "";
-    let data = body.map(r => ({ l: r[0], v: num(r[col]), t: r[col] })).filter(d => d.v !== null && d.l);
-    let note = "";
-    if (data.length > 12) { data = data.slice(-12); note = "Die letzten 12 Werte"; }
-    const max = Math.max(...data.map(d => Math.abs(d.v))) || 1, hasNeg = data.some(d => d.v < 0);
-    const top = Math.max(...data.map(d => d.v));
-    return `<figure class="cbars" aria-label="${esc((head[col] || "Werte") + ": " + data.map(d => d.l + " " + d.t).join(", "))}">${head[col] ? `<figcaption>${esc(head[col])}${note ? " · " + note : ""}</figcaption>` : ""}${data.map(d => `<div class="cbar${d.v === top ? " top" : ""}"><span class="cbl">${esc(d.l)}</span><span class="cbt${hasNeg ? " neg" : ""}"><i style="${d.v < 0 ? "right:50%;" : hasNeg ? "left:50%;" : "left:0;"}width:${(Math.abs(d.v) / max * (hasNeg ? 50 : 100)).toFixed(1)}%"></i></span><span class="cbv">${esc(d.t.replace(/%$/, " %"))}</span></div>`).join("")}</figure>`;
-  }
-  const ARROW = { plus: "▲", minus: "▼" };
-  function askPlaceholder(st, x) {
-    if (x && x.fragen && x.fragen[0]) return "z. B. " + x.fragen[0];
-    const rows = st.dw && st.dw.csv ? parseCSV(st.dw.csv) : [];
-    if (rows.length > 2 && rows[1][0]) return `z. B. Was zeigt die Grafik für ${rows[1][0]}?`;
-    return "Frag etwas zu dieser Grafik";
-  }
+  const lv2 = st => st.level || defaultLevel();
   function cbodyHTML(st) {
     const lv = st.level || defaultLevel();
     const x = st.exp[lv], dw = st.dw;
-    let h = `<div class="chead">${dw && dw.title ? `<p class="ctitle">${esc(dw.title)}</p>` : `<p class="ctitle">Grafik einfach erklärt</p>`}
+    let h = `<div class="chead"><p class="ctitle">${dw && dw.title ? esc(dw.title) : "Einfach erklärt"}</p>
       <span class="cseg" role="group" aria-label="Länge der Erklärung"><button data-act="cx-level" data-gid="${st.gid}" data-level="kurz" aria-pressed="${lv === "kurz"}">Kurz</button><button data-act="cx-level" data-gid="${st.gid}" data-level="lang" aria-pressed="${lv === "lang"}">Ausführlich</button></span></div>`;
     if (st.loading) h += `<div class="thinking"><span class="dots"><i></i><i></i><i></i></span> ${esc(st.loading)}</div>`;
     else if (x) {
-      h += `<div class="ckern"><span class="dot"></span><p>${esc(x.kern)}</p><button class="cplay" data-act="cx-read" data-gid="${st.gid}" aria-label="Erklärung vorlesen">${ICON.play}</button></div>`;
-      if (lv === "lang" && x.lesen) h += `<p class="cread"><span aria-hidden="true">👁</span>${esc(x.lesen)}</p>`;
-      h += miniChart(st, x);
-      if (x.zahlen && x.zahlen.length) h += `<div class="cchips">${x.zahlen.map(z => `<div class="cchip"><b>${esc(z.wert)}${ARROW[z.richtung] ? `<em>${ARROW[z.richtung]}</em>` : ""}</b><span>${esc(z.label)}</span></div>`).join("")}</div>`;
-      if (lv === "lang" && x.fazit) h += `<p class="cfazit">${esc(x.fazit)}</p>`;
-    } else if (st.err) h += `<p class="cerr">${st.err}</p>${miniChart(st, null)}`;
-    else h += `<div class="crow"><button class="cbtn on" data-act="cx-explain" data-gid="${st.gid}">Grafik erklären</button></div>${miniChart(st, null)}`;
-    if (dw && dw.csv) { const rows = parseCSV(dw.csv); if (rows.length > 1) h += `<details class="ctab"><summary>Alle Zahlen als Tabelle</summary>${tableHTML(rows)}</details>`; }
-    if (dw && (dw.source || dw.notes)) h += `<p class="cmeta">${[dw.notes, dw.source && "Quelle: " + dw.source].filter(Boolean).map(esc).join(" · ")}</p>`;
+      h += `<div class="ckern"><span class="dot"></span><p>${esc(x.kern)}</p><button class="cplay" data-act="cx-read" data-gid="${st.gid}" aria-label="Vorlesen">${ICON.play}</button></div>`;
+      if (lv === "lang" && x.einfach && x.einfach.length) h += `<div class="ctext">${x.einfach.map(t => `<p>${esc(t)}</p>`).join("")}</div>`;
+      if (x.beispiel) h += `<div class="cbsp"><p class="cbsph"><span aria-hidden="true">💡</span>Zum Beispiel</p><p>${esc(x.beispiel)}</p></div>`;
+    } else if (st.err) h += `<p class="cerr">${st.err}</p>`;
+    else h += `<div class="crow"><button class="cbtn on" data-act="cx-explain" data-gid="${st.gid}">Einfach erklären</button></div>`;
+    if (dw && dw.csv) { const rows = parseCSV(dw.csv); if (rows.length > 1) h += `<details class="ctab"><summary>Genaue Zahlen nachlesen</summary>${tableHTML(rows)}</details>`; }
+    if (dw && dw.source) h += `<p class="cmeta">Quelle: ${esc(dw.source)}</p>`;
     const fr = x && x.fragen ? x.fragen.slice(0, 2) : [];
-    h += `<div class="caskcard"><p class="caskh">${ICON.wave}<span>Frag zur Grafik</span></p>
+    h += `<div class="caskcard"><p class="caskh">${ICON.wave}<span>Frag mich etwas dazu</span></p>
       ${st.qa.length ? `<div class="cqa">${st.qa.map(m => `<p class="cq me">${esc(m.q)}</p><p class="cq bot">${esc(m.a)}</p>`).join("")}</div>` : ""}
       ${fr.length && !st.qa.length ? `<div class="csugg">${fr.map(f => `<button data-act="cx-sugg" data-gid="${st.gid}">${esc(f)}</button>`).join("")}</div>` : ""}
-      <div class="cask"><button class="round cmic" data-act="cx-mic" data-gid="${st.gid}" aria-label="Frage sprechen">${ICON.wave}</button><input data-qin="${st.gid}" type="text" placeholder="${esc(askPlaceholder(st, x))}" aria-label="Frage zur Grafik"><button class="csend" data-act="cx-ask" data-gid="${st.gid}" aria-label="Frage senden">${ICON.next}</button></div>
-      <p class="cwarn">${dw && dw.csv ? "Antworten stützen sich auf die Zahlen der Grafik." : "UMO liest die Grafik als Bild. Prüfe wichtige Zahlen im Original."}</p></div>`;
+      <div class="cask"><button class="round cmic" data-act="cx-mic" data-gid="${st.gid}" aria-label="Frage sprechen">${ICON.wave}</button><input data-qin="${st.gid}" type="text" placeholder="${esc(fr[0] ? "z. B. " + fr[0] : "z. B. Was heißt das für mich?")}" aria-label="Deine Frage"><button class="csend" data-act="cx-ask" data-gid="${st.gid}" aria-label="Frage senden">${ICON.next}</button></div>
+      <p class="cwarn">Ich antworte nur mit dem, was hier zu sehen ist.</p></div>`;
     return h;
   }
   function renderCbox(gid) {
@@ -1004,16 +1003,12 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
     const d = st.dw;
     return `Titel der Grafik: "${d.title}"\nBeschreibung: "${d.intro}"\nHinweis: "${d.notes}"\nQuelle: "${d.source}"\nDiagrammtyp: ${d.type}\nDaten der Grafik (CSV, genau so, wie die Grafik sie zeigt):\n"""\n${d.csv.slice(0, 8000)}\n"""`;
   }
-  function schemaText(lv, data) {
-    return `Form: kompakt und visuell. Kein Fließtext.
-Antworte nur mit JSON:
-{"kern":"die wichtigste Aussage in einem kurzen Satz, höchstens 14 Wörter",
- "zahlen":[{"label":"kurzer Name, z. B. eine Partei","wert":"Zahl mit Einheit, genau aus der Grafik","richtung":"plus, minus oder leer"}],
- ${data ? '"spalte":"Name der Datenspalte, die die Grafik hauptsächlich zeigt",' : ""}
- "lesen":"${lv === "kurz" ? "" : "ein kurzer Satz: So liest du die Grafik"}",
- "fazit":"${lv === "kurz" ? "" : "ein kurzer Satz, was das bedeutet"}",
- "fragen":["zwei kurze Fragen, die man zu genau dieser Grafik stellen kann"]}
-Bei zahlen ${lv === "kurz" ? "höchstens 3" : "höchstens 5"} Einträge, die wichtigsten zuerst.`;
+  function schemaText(lv) {
+    return `Antworte nur mit JSON:
+{"kern":"Das Wichtigste in einem Satz, höchstens 12 Wörter",
+ "einfach":${lv === "kurz" ? "[]" : '["2 bis 3 sehr kurze Sätze: Was bedeutet das? Was ist daran wichtig?"]'},
+ "beispiel":"Ein Beispiel aus dem Alltag, das die Zahlen greifbar macht. Beginne mit „Stell dir vor“. Höchstens 2 kurze Sätze. Leer lassen, wenn kein gutes Beispiel passt.",
+ "fragen":["zwei kurze Fragen, die sich ein Mensch dazu stellen würde, z. B. Was heißt das für mich? Keine Fragen dazu, wie etwas dargestellt ist."]}`;
   }
   async function explainChart(gid) {
     const st = CH.get(gid); if (!st || st.loading) return;
@@ -1026,23 +1021,24 @@ Bei zahlen ${lv === "kurz" ? "höchstens 3" : "höchstens 5"} Einträge, die wic
     try {
       let r;
       if (st.dw && st.dw.csv) {
-        r = await ask(`Du bist UMO. Erkläre diese Grafik aus dem Artikel "${art}" auf ${HOST} für Menschen mit kognitiven Einschränkungen in ${lvText(lv)}.
+        r = await ask(`Du bist UMO. Eine Person liest den Artikel "${art}" auf ${HOST}. Sie sieht eine Infografik und versteht sie nicht gut. Erkläre ihr in einfachen Worten, was die Zahlen bedeuten. ${lv === "kurz" ? "Ganz kurz." : "Etwas ausführlicher, aber immer noch einfach."}
+Hier sind die Zahlen hinter der Infografik:
 ${dwContext(st)}
-Regeln: Nutze nur diese Daten. Nenne Zahlen genau so wie in den Daten, mit Komma. Erfinde nichts. Bewerte keine Partei und keine Person. Keine Prognosen. Wenn eine Spalte unklar ist, sag das ehrlich.
+${TONE}
+Nutze nur diese Zahlen. Erfinde nichts. Ist etwas unklar, lass es weg.
 ${needsLine()}
-${schemaText(lv, true)}`, { maxTokens: 900 });
+${schemaText(lv)}`, { maxTokens: 700 });
       } else {
         if (!st.image) { st.loading = "Ich mache ein Bild von der Grafik …"; renderCbox(gid); st.image = await captureGraphic(gid); }
-        r = await ask(`Du bist UMO. Du siehst eine Grafik, Tabelle oder ein Bild aus dem Artikel "${art}" auf ${HOST}.
-Erkläre sie für Menschen mit kognitiven Einschränkungen in ${lvText(lv)}.
-Regeln: Lies Zahlen nur ab, wenn sie klar lesbar sind, und gib sie genau wieder. Erfinde nichts. Bewerte nichts politisch. Wenn es ein Foto ohne Daten ist, beschreibe nur kurz, was zu sehen ist, und lass die anderen Felder leer.
+        r = await ask(`Du bist UMO. Eine Person liest den Artikel "${art}" auf ${HOST}. Sie sieht das angehängte Bild, vermutlich eine Infografik, und versteht es nicht gut. Erkläre ihr in einfachen Worten, was es zeigt und bedeutet. ${lv === "kurz" ? "Ganz kurz." : "Etwas ausführlicher, aber immer noch einfach."}
+${TONE}
+Nutze nur Zahlen, die du sicher lesen kannst. Erfinde nichts. Ist es ein Foto ohne Zahlen, sag in einem Satz, was zu sehen ist, und lass den Rest leer.
 ${needsLine()}
-${schemaText(lv, false)}`, { image: st.image, maxTokens: 900 });
+${schemaText(lv)}`, { image: st.image, maxTokens: 700 });
       }
       const str = v => Array.isArray(v) ? v.join(" ") : String(v || "");
-      st.exp[lv] = { kern: str(r.kern), lesen: str(r.lesen), fazit: str(r.fazit), spalte: str(r.spalte),
-        zahlen: (Array.isArray(r.zahlen) ? r.zahlen : []).filter(z => z && z.wert).slice(0, lv === "kurz" ? 3 : 5).map(z => ({ label: String(z.label || ""), wert: String(z.wert), richtung: String(z.richtung || "") })),
-        fragen: (Array.isArray(r.fragen) ? r.fragen : []).map(String).slice(0, 2) };
+      st.exp[lv] = { kern: str(r.kern), einfach: (Array.isArray(r.einfach) ? r.einfach : r.einfach ? [r.einfach] : []).map(String).filter(Boolean).slice(0, 3),
+        beispiel: str(r.beispiel), fragen: (Array.isArray(r.fragen) ? r.fragen : []).map(String).slice(0, 2) };
     } catch (e) { hostEl.style.visibility = ""; st.err = e.code === "capture" ? "Ich konnte die Grafik nicht aufnehmen." : e.code === "gone" ? "Die Grafik ist auf der Seite nicht mehr da." : errText(e); st.lastErr = true; }
     st.loading = ""; renderCbox(gid);
   }
@@ -1057,10 +1053,11 @@ ${schemaText(lv, false)}`, { image: st.image, maxTokens: 900 });
         const hist = st.qa.slice(0, -1).slice(-4).map(m => `Frage: ${m.q}\nAntwort: ${m.a}`).join("\n");
         const useData = st.dw && st.dw.csv;
         if (!useData && !st.image) st.image = await captureGraphic(gid);
-        const r = await ask(`Du bist UMO. Eine Person stellt eine Frage zu einer Grafik aus dem Artikel "${page.article ? page.article.title : document.title}" auf ${HOST}. Antworte in 1 bis 3 kurzen Sätzen in einfacher Sprache.
-${useData ? dwContext(st) : "Die Grafik ist als Bild angehängt."}
+        const r = await ask(`Du bist UMO. Eine Person liest den Artikel "${page.article ? page.article.title : document.title}" auf ${HOST} und hat eine Frage zu einer Infografik darin. Antworte in 1 bis 3 kurzen Sätzen. Wenn es hilft, nimm ein kleines Beispiel aus dem Alltag.
+${useData ? "Die Zahlen hinter der Infografik:\n" + dwContext(st) : "Die Infografik ist als Bild angehängt."}
 ${hist ? "Bisheriges Gespräch:\n" + hist : ""}
-Regeln: Antworte nur mit dem, was die Grafik zeigt. Nenne Zahlen genau. Wenn die Grafik die Antwort nicht zeigt, sag das ehrlich. Bewerte keine Partei und keine Person.
+${TONE}
+Antworte nur mit dem, was die Infografik zeigt. Weißt du etwas nicht, sag freundlich und ehrlich, dass es hier nicht zu sehen ist.
 ${needsLine()}
 Frage zur Grafik: """${q.slice(0, 300)}"""
 Antworte nur mit JSON: {"antwort":"..."}`, { image: useData ? undefined : st.image, maxTokens: 400 });
@@ -1404,7 +1401,7 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
       case "cx-toggle": { const st = CH.get(b.dataset.gid); st.open = !st.open; renderCbox(st.gid); if (st.open && !st.exp[st.level || defaultLevel()]) { ensureChartData(st).then(() => { renderCbox(st.gid); if (hasKey()) explainChart(st.gid); }); } break; }
       case "cx-explain": explainChart(b.dataset.gid); break;
       case "cx-level": { const st = CH.get(b.dataset.gid); st.level = b.dataset.level; explainChart(st.gid); break; }
-      case "cx-read": { const st = CH.get(b.dataset.gid), x = st.exp[st.level || defaultLevel()]; if (isSpeaking()) { stopSpeak(); break; } if (x) speak([x.kern, x.lesen, ...(x.zahlen || []).map(z => `${z.label}: ${z.wert}`), x.fazit].filter(Boolean).map(t => /[.!?]$/.test(t.trim()) ? t.trim() : t.trim() + ".").join(" ")); break; }
+      case "cx-read": { const st = CH.get(b.dataset.gid), x = st.exp[st.level || defaultLevel()]; if (isSpeaking()) { stopSpeak(); break; } if (x) speak([x.kern, ...(lv2(st) === "lang" ? x.einfach || [] : []), x.beispiel].filter(Boolean).map(t => /[.!?]$/.test(t.trim()) ? t.trim() : t.trim() + ".").join(" ")); break; }
       case "cx-sugg": askChart(b.dataset.gid, b.textContent, false); break;
       case "cx-ask": { const inp = b.closest(".cbox").querySelector("[data-qin]"); const q = inp.value; inp.value = ""; askChart(b.dataset.gid, q, false); break; }
       case "cx-mic": { stopSpeak(); listen(b, t => askChart(b.dataset.gid, t, true)); break; }
@@ -1435,8 +1432,9 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
 
   /* ---------- init ---------- */
   async function init() {
-    const s = await chrome.storage.local.get(["apiKey", "needs", "hiddenSites", "showLauncher", "elevenKey"]);
-    Object.assign(cfg, { apiKey: s.apiKey || "", needs: s.needs || "", hiddenSites: s.hiddenSites || [], showLauncher: s.showLauncher !== false, elevenKey: s.elevenKey || "" });
+    const s = await chrome.storage.local.get(["apiKey", "needs", "hiddenSites", "showLauncher", "elevenKey", "voiceEngine", "voiceName", "voiceRate"]);
+    Object.assign(cfg, { apiKey: s.apiKey || "", needs: s.needs || "", hiddenSites: s.hiddenSites || [], showLauncher: s.showLauncher !== false, elevenKey: s.elevenKey || "",
+      voiceEngine: s.voiceEngine || "system", voiceName: s.voiceName || "", voiceRate: s.voiceRate || 0.9 });
     ui.visible = cfg.showLauncher && !cfg.hiddenSites.includes(HOST);
     try {
       const css = await (await fetch(chrome.runtime.getURL("content/umo.css"))).text();
@@ -1463,6 +1461,7 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
     chrome.storage.onChanged.addListener(ch => {
       if (ch.apiKey) cfg.apiKey = ch.apiKey.newValue || "";
       if (ch.elevenKey) cfg.elevenKey = ch.elevenKey.newValue || "";
+      for (const k of ["voiceEngine", "voiceName", "voiceRate"]) if (ch[k]) cfg[k] = ch[k].newValue;
       if (ch.needs) cfg.needs = ch.needs.newValue || "";
       if (ch.showLauncher) { cfg.showLauncher = ch.showLauncher.newValue !== false; ui.visible = cfg.showLauncher && !cfg.hiddenSites.includes(HOST); renderLauncher(); }
     });

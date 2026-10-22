@@ -277,3 +277,13 @@
 .sound[aria-pressed="true"]{background:#fff;box-shadow:0 4px 16px rgba(177,99,255,.3)}
 .sound svg{width:18px;height:18px}
 @media (prefers-reduced-motion:reduce){.calmcard{animation:none}.orb,.halo{transform:scale(.8)!important;transition:none!important;animation:none!important}}
+
+/* Erklärung: Text und Alltagsbeispiel */
+.ckern p{font-size:18px!important}
+.ctext{margin:0 0 12px;padding:0 4px}
+.ctext p{font-size:16px!important;line-height:1.55!important;margin:0 0 6px!important}
+.cbsp{background:rgba(255,84,27,.12);border-radius:16px;padding:12px 14px;margin:0 0 12px}
+.cbox.t-light .cbsp{background:#FFF1EA}
+.cbsph{display:flex;gap:8px;align-items:center;font-weight:700;font-size:13px!important;color:var(--cb-bar)!important;margin:0 0 4px!important;text-transform:none}
+.cbsp p:last-child{font-size:16px!important;line-height:1.5!important}
+.ctab summary{font-weight:500}

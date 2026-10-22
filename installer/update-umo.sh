@@ -16,7 +16,8 @@ ver_gt() {
 }
 [ -f "$DIR/umo-config.json" ] || { log "Kein UMO-Ordner unter $DIR"; exit 0; }
 URL=$(json_get updateManifestUrl "$DIR/umo-config.json")
-[ -n "$URL" ] || exit 0
+[ -n "$URL" ] || { log "Keine Update-Adresse in umo-config.json"; exit 0; }
+date '+%Y-%m-%d %H:%M:%S' > "$BASE/last-check"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 curl -fsSL "$URL?t=$(date +%s)" -o "$TMP/version.json" 2>/dev/null || { log "version.json nicht erreichbar"; exit 0; }
 NEW=$(json_get version "$TMP/version.json"); ZIP=$(json_get zip "$TMP/version.json"); CUR=$(json_get version "$DIR/manifest.json")

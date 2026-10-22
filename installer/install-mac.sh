@@ -25,6 +25,8 @@ if [ "$(uname)" = "Darwin" ]; then
   <key>ProgramArguments</key><array><string>/bin/bash</string><string>$BASE/update-umo.sh</string></array>
   <key>StartInterval</key><integer>900</integer>
   <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>$BASE/updater-output.log</string>
+  <key>StandardErrorPath</key><string>$BASE/updater-output.log</string>
 </dict></plist>
 PLIST
   launchctl bootout "gui/$(id -u)" "$PL" 2>/dev/null || true
@@ -35,6 +37,8 @@ fi
 echo
 echo "Fertig. UMO liegt in: $DIR"
 echo "Automatische Updates sind eingerichtet (alle 15 Minuten)."
+sleep 2; [ -f "$BASE/update.log" ] && tail -1 "$BASE/update.log"
+echo "Installierte Version: $(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$DIR/manifest.json" | head -n1)"
 echo
 echo "Nur beim ersten Mal in Chrome:"
 echo "  1. chrome://extensions öffnen"

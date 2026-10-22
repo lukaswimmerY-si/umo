@@ -57,17 +57,32 @@ code{font-size:14px}
 
   <section>
     <h2>Stimme</h2>
-    <p>UMO liest mit der ElevenLabs-Stimme „Amy“ vor. Dafür braucht es einen eigenen ElevenLabs-Schlüssel. Ohne Schlüssel nutzt UMO die Stimme des Browsers.</p>
-    <label for="elKey">ElevenLabs-Schlüssel</label>
-    <input id="elKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk_…">
-    <label for="elVoice">Stimme (Voice-ID)</label>
-    <input id="elVoice" type="text" spellcheck="false" placeholder="xTXZTtb6MuzG0jJR05Y9">
-    <label for="elModel">Modell</label>
-    <select id="elModel">
-      <option value="eleven_multilingual_v2">Multilingual v2 (beste Qualität auf Deutsch)</option>
-      <option value="eleven_flash_v2_5">Flash v2.5 (schneller)</option>
+    <p>UMO liest mit einer Stimme vor, die schon auf diesem Rechner ist. Das ist kostenlos und braucht kein Konto.</p>
+    <label for="vName">Stimme</label>
+    <select id="vName"></select>
+    <label for="vRate">Tempo</label>
+    <select id="vRate">
+      <option value="0.8">Sehr ruhig</option>
+      <option value="0.9">Ruhig</option>
+      <option value="1">Normal</option>
     </select>
-    <div class="row"><button id="elSave">Speichern</button><button id="elTest" class="ghost">Stimme testen</button><span id="elSt" class="status" role="status"></span></div>
+    <div class="row"><button id="vTest">Probehören</button><button id="vSave" class="ghost">Speichern</button><span id="vSt" class="status" role="status"></span></div>
+    <details style="margin-top:14px"><summary class="muted" style="cursor:pointer">So bekommst du eine noch natürlichere Stimme (Mac, kostenlos)</summary>
+      <p class="muted" style="margin-top:8px">Öffne die Systemeinstellungen, dann „Bedienungshilfen“, dann „Gesprochene Inhalte“. Klicke neben „Systemstimme“ auf das kleine i oder auf „Stimme verwalten“. Wähle „Deutsch“ und lade „Anna (Premium)“ oder „Petra (Premium)“. Danach Chrome einmal neu starten. Die Stimme erscheint dann hier in der Liste.</p>
+    </details>
+    <details style="margin-top:10px"><summary class="muted" style="cursor:pointer">ElevenLabs nutzen (kostenpflichtig)</summary>
+      <label><input type="checkbox" id="elOn" style="width:auto;margin-right:8px">Mit ElevenLabs vorlesen</label>
+      <label for="elKey">ElevenLabs-Schlüssel</label>
+      <input id="elKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk_…">
+      <label for="elVoice">Stimme (Voice-ID)</label>
+      <input id="elVoice" type="text" spellcheck="false" placeholder="xTXZTtb6MuzG0jJR05Y9">
+      <label for="elModel">Modell</label>
+      <select id="elModel">
+        <option value="eleven_multilingual_v2">Multilingual v2 (beste Qualität auf Deutsch)</option>
+        <option value="eleven_flash_v2_5">Flash v2.5 (schneller)</option>
+      </select>
+      <div class="row"><button id="elSave">Speichern</button><button id="elTest" class="ghost">ElevenLabs testen</button><span id="elSt" class="status" role="status"></span></div>
+    </details>
   </section>
 
   <section>
