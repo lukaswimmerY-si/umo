@@ -287,3 +287,11 @@
 .cbsph{display:flex;gap:8px;align-items:center;font-weight:700;font-size:13px!important;color:var(--cb-bar)!important;margin:0 0 4px!important;text-transform:none}
 .cbsp p:last-child{font-size:16px!important;line-height:1.5!important}
 .ctab summary{font-weight:500}
+
+/* Leichte Sprache (DIN SPEC 33429): große Schrift, viel Zeilenabstand, ein Satz pro Zeile, linksbündig, keine Silbentrennung */
+.reader.leicht .rbody{max-width:640px}
+.reader.leicht .rbody p.ls{font-size:21px;line-height:1.75;margin:0 0 22px;text-align:left;hyphens:none;-webkit-hyphens:none;word-spacing:.04em}
+.reader.leicht .rbody h2{font-size:24px;margin-top:34px}
+.reader.leicht .rbody li{font-size:20px;line-height:1.7;margin-bottom:8px}
+.reader.leicht .summary li{font-size:19px;line-height:1.6}
+.lvl button{white-space:nowrap}

@@ -323,6 +323,29 @@
     if (c === "stale") return "UMO wurde gerade aktualisiert. Lade die Seite neu.";
     return `Die KI hat gerade nicht geantwortet.${again}${detail}`;
   }
+  // Regeln nach DIN 8581-1:2024-05 (Einfache Sprache) und DIN SPEC 33429:2025-03 (Leichte Sprache)
+  const RULES_EINFACH = `Schreibe in Einfacher Sprache (nach DIN 8581-1). Zielgruppe: alle Menschen, die einen Text schnell und sicher verstehen wollen.
+- Das Wichtigste zuerst.
+- Kurze Sätze, meist unter 15 Wörtern. Nebensätze nur, wenn sie nötig sind, und nie verschachtelt.
+- Bekannte Alltagswörter. Fachwörter und Fremdwörter vermeiden. Ist eines nötig, erkläre es beim ersten Mal kurz im Satz.
+- Aktiv statt Passiv. Verben statt Hauptwörter: „entscheiden“ statt „eine Entscheidung treffen“.
+- Keine Abkürzungen ohne Erklärung. Keine Bilder-Sprache, keine Ironie.
+- Fließtext in kurzen Absätzen. Zahlen bleiben genau, große Zahlen lesbar: 1,2 Millionen.`;
+  const RULES_LEICHT = `Schreibe in Leichter Sprache (nach DIN SPEC 33429). Zielgruppe: Menschen mit Lern·schwierigkeiten.
+- Ein Gedanke pro Satz. Höchstens etwa 10 Wörter pro Satz.
+- Jeder Satz steht in einer eigenen Zeile. Trenne die Sätze mit \\n.
+- Nur einfache Haupt·sätze. Keine Neben·sätze, keine Einschübe.
+- Kein Genitiv: „das Haus von dem Vater“ statt „das Haus des Vaters“.
+- Kein Passiv. Kein Konjunktiv. Wenig Verneinung. Wenn nötig, das Wort „nicht“ benutzen.
+- Nur bekannte, kurze Wörter. Ist ein schweres Wort nötig, erkläre es im nächsten Satz: „Das bedeutet: …“
+- Lange zusammen·gesetzte Wörter mit Medio·punkt gliedern: Bundes·tag, Steuer·schätzung. Namen nicht gliedern.
+- Immer das gleiche Wort für die gleiche Sache. Keine anderen Wörter dafür.
+- Keine Abkürzungen, keine Fremd·wörter, keine Bilder-Sprache, keine Rede·wendungen, keine Ironie.
+- Zahlen in Ziffern. Prozente und große Zahlen greifbar machen: „23 von 100 Menschen“, „sehr viel Geld: 400 Milliarden Euro“.
+- Daten so schreiben: 23. Februar 2025. Keine Sonder·zeichen wie & % § ; und keine Klammern.
+- Lieber etwas Unwichtiges weglassen. Aber nichts Wichtiges weglassen und nichts erfinden.`;
+  const langRules = () => M.structure ? RULES_LEICHT : RULES_EINFACH;
+  const langName = () => M.structure ? "Leichte Sprache" : "Einfache Sprache";
   const TONE = `So sprichst du: warm, ruhig und menschlich, wie eine freundliche Person, die neben einem sitzt. Du-Form. Kurze Sätze mit höchstens 12 Wörtern. Alltagswörter statt Fachwörter. Ist ein Fachwort nötig, erkläre es in wenigen Wörtern, zum Beispiel: Zweitstimme, also die Stimme für eine Partei.
 Mach Zahlen greifbar und runde sie so, dass es noch stimmt: „etwa 23 von 100 Menschen“ statt „22,6 Prozent“, „fast ein Viertel“, „gut 400 Milliarden Euro“. Sag nie „Prozentpunkte“.
 Sprich über das, was in der Welt passiert ist, nicht über die Darstellung. Benutze nie die Wörter Grafik, Diagramm, Balken, Spalte, Zeile, Achse, Legende, Tabelle, Daten oder Datensatz.
@@ -355,7 +378,7 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
   let utterSeq = 0;
   function browserUtter(text, onend) {
     if (!canSpeak) return false;
-    const v = pickVoice(), my = ++utterSeq;
+    const v = pickVoice(), my = ++utterSeq; text = String(text).replace(/·/g, "");
     const parts = sentences(text).reduce((acc, t) => { const last = acc[acc.length - 1]; if (last && (last + " " + t).length < 180) acc[acc.length - 1] = last + " " + t; else acc.push(t); return acc; }, []);
     if (!parts.length) return false;
     speakingFlag = true;
@@ -386,7 +409,7 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
   });
   const isSpeaking = () => speakingFlag || (canSpeak && speechSynthesis.speaking);
   function stopSpeak() { ttsWait.clear(); speakingFlag = false; utterSeq++; if (useEleven()) send({ type: "umo-tts-stop" }); if (canSpeak) speechSynthesis.cancel(); }
-  function speak(t) { stopSpeak(); if (!utter(String(t).slice(0, 4500))) toast("Vorlesen geht in diesem Browser nicht."); }
+  function speak(t) { stopSpeak(); if (!utter(String(t).replace(/·/g, "").slice(0, 4500))) toast("Vorlesen geht in diesem Browser nicht."); }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   function listen(btn, onText, onFail) {
     const fail = m => { toast(m); onFail && onFail(); };
@@ -884,10 +907,10 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
     if (M.simplify) pills.push(["einfach", "Einfach Modus"]);
     if (M.snack) pills.push(["snack", "Snack Modus"]);
     const keep = slot.querySelector(".reader")?.scrollTop || 0;
-    slot.innerHTML = `<div class="reader" role="dialog" aria-label="UMO Leseansicht">
+    slot.innerHTML = `<div class="reader${M.simplify && M.structure && hasKey() ? " leicht" : ""}" role="dialog" aria-label="UMO Leseansicht">
       <div class="rbar"><span class="site">${esc(art.site)}</span><button class="pill" data-act="reader-close">Zur Seite</button></div>
       <div class="rbody"><h1 id="rTitle">${esc(art.title)}</h1>${art.byline ? `<p class="byline">${esc(art.byline)}</p>` : ""}
-        <div class="modes">${pills.map(p => `<button class="mpill" data-act="open" data-view="${p[0]}"><span class="dot"></span>${p[1]}</button>`).join("")}${M.simplify && !M.snack && hasKey() ? `<span class="lvl" role="group" aria-label="Wie einfach?"><button data-act="lvl" data-level="einfach" aria-pressed="${!M.structure}">Einfach</button><button data-act="lvl" data-level="sehr" aria-pressed="${!!M.structure}">Sehr einfach</button></span>` : ""}${!M.snack ? `<button class="mpill ghost" data-act="read">Vorlesen</button>` : ""}</div>
+        <div class="modes">${pills.map(p => `<button class="mpill" data-act="open" data-view="${p[0]}"><span class="dot"></span>${p[1]}</button>`).join("")}${M.simplify && !M.snack && hasKey() ? `<span class="lvl" role="group" aria-label="Sprache wählen"><button data-act="lvl" data-level="einfach" aria-pressed="${!M.structure}" title="Für alle, die schnell verstehen wollen. Nach DIN 8581-1.">Einfache Sprache</button><button data-act="lvl" data-level="sehr" aria-pressed="${!!M.structure}" title="Für Menschen mit Lernschwierigkeiten. Nach DIN SPEC 33429.">Leichte Sprache</button></span>` : ""}${!M.snack ? `<button class="mpill ghost" data-act="read">Vorlesen</button>` : ""}</div>
         <div id="rSummary"></div><div id="rMain"></div><div id="rGloss"></div>
         <p class="ainote" style="margin-top:28px">UMO-Leseansicht von ${esc(location.href.slice(0, 80))}. <button data-act="reader-close">Original anzeigen</button></p>
       </div></div>`;
@@ -903,7 +926,7 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
     const main = $("#rMain"); if (!main) return;
     const lv = level(), simple = M.simplify || M.structure;
     let html = "";
-    if (simple) html += `<p class="ainote">${lv === "struktur" ? (hasKey() ? "Originaltext, in kurze Punkte aufgeteilt." : "Ohne KI-Schlüssel zeigt UMO den Originaltext in kurzen Punkten. <button data-act=\"options\">Schlüssel eintragen</button>") : "Vereinfacht mit KI. Unter jedem Absatz findest du den Originaltext. KI kann Fehler machen."}</p>`;
+    if (simple) html += `<p class="ainote">${lv === "struktur" ? (hasKey() ? "Originaltext, in kurze Punkte aufgeteilt." : "Ohne KI-Schlüssel zeigt UMO den Originaltext in kurzen Punkten. <button data-act=\"options\">Schlüssel eintragen</button>") : (lv === "sehr" ? "Eine KI hat diesen Text in Leichte Sprache übertragen.<br>Menschen mit Lern·schwierigkeiten haben den Text nicht geprüft.<br>Unter jedem Absatz steht der Original·text." : "Von einer KI in Einfache Sprache übertragen, nach DIN 8581-1. Unter jedem Absatz steht der Originaltext. Eine KI kann Fehler machen.")}</p>`;
     if (M.simplify && simp && simp.error) html += `<div class="err">${simp.error}</div>`;
     for (const b of page.article.blocks) {
       if (b.type === "img" || b.type === "graphic") { html += figureHTML(b); continue; }
@@ -921,8 +944,10 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
   }
   function blockHTML(b, t, withOrig) {
     const lines = String(t).split(/\n+/).map(s => s.trim()).filter(Boolean);
+    const leicht = M.simplify && level() === "sehr";
     let h;
     if (b.type === "h") h = `<h2>${esc(lines.join(" "))}</h2>`;
+    else if (leicht && b.type !== "list") h = `<p class="ls">${lines.map(esc).join("<br>")}</p>`;
     else if (b.type === "list" || lines.length > 1) h = `<ul>${lines.map(l => `<li>${esc(l)}</li>`).join("")}</ul>`;
     else if (b.type === "q") h = `<blockquote><p>${esc(lines[0] || "")}</p></blockquote>`;
     else h = `<p>${esc(lines[0] || "")}</p>`;
@@ -1025,6 +1050,7 @@ Antworte nur mit JSON: {"antwort":"..."}`, { maxTokens: 400 });
 Hier sind die Zahlen hinter der Infografik:
 ${dwContext(st)}
 ${TONE}
+${M.simplify && M.structure ? RULES_LEICHT : ""}
 Nutze nur diese Zahlen. Erfinde nichts. Ist etwas unklar, lass es weg.
 ${needsLine()}
 ${schemaText(lv)}`, { maxTokens: 700 });
@@ -1032,6 +1058,7 @@ ${schemaText(lv)}`, { maxTokens: 700 });
         if (!st.image) { st.loading = "Ich mache ein Bild von der Grafik …"; renderCbox(gid); st.image = await captureGraphic(gid); }
         r = await ask(`Du bist UMO. Eine Person liest den Artikel "${art}" auf ${HOST}. Sie sieht das angehängte Bild, vermutlich eine Infografik, und versteht es nicht gut. Erkläre ihr in einfachen Worten, was es zeigt und bedeutet. ${lv === "kurz" ? "Ganz kurz." : "Etwas ausführlicher, aber immer noch einfach."}
 ${TONE}
+${M.simplify && M.structure ? RULES_LEICHT : ""}
 Nutze nur Zahlen, die du sicher lesen kannst. Erfinde nichts. Ist es ein Foto ohne Zahlen, sag in einem Satz, was zu sehen ist, und lass den Rest leer.
 ${needsLine()}
 ${schemaText(lv)}`, { image: st.image, maxTokens: 700 });
@@ -1125,21 +1152,20 @@ Antworte nur mit JSON: {"antwort":"..."}`, { image: useData ? undefined : st.ima
     const batches = []; let cur = [], len = 0;
     for (const b of todo) { if (cur.length && (len + b.text.length > 2600 || cur.length >= 12)) { batches.push(cur); cur = []; len = 0; } cur.push(b); len += b.text.length; }
     if (cur.length) batches.push(cur);
-    const style = lv === "sehr"
-      ? "sehr einfache Sprache nah an Leichter Sprache: sehr kurze Sätze, eine Aussage pro Satz, jeder Satz in einer eigenen Zeile (Zeilen mit \\n trennen), keine Fremdwörter, keine Nebensätze"
-      : "einfache Sprache: kurze Sätze, bekannte Wörter, schwere Wörter direkt im Text kurz erklären";
+    const rules = lv === "sehr" ? RULES_LEICHT : RULES_EINFACH;
     for (let bi = 0; bi < batches.length; bi++) {
       if (my !== readerToken || !M.simplify) return;
       const batch = batches[bi], first = bi === 0 && !cache.glossary;
       try {
-        const r = await ask(`Du bist UMO. Du hilfst Menschen mit kognitiven Einschränkungen, Texte im Internet zu verstehen.
-Schreibe die folgenden Teile eines Artikels von ${HOST} in ${style}.
-Regeln: Bleib genau bei den Fakten aus dem Text. Erfinde nichts dazu und lass nichts Wichtiges weg. Bewerte nichts, was der Text nicht bewertet. Behalte Zahlen, Namen und Daten genau bei. Überschriften (type "h") bleiben kurz, höchstens 6 Wörter. Listen (type "list") bleiben Listen, ein Punkt pro Zeile.
+        const r = await ask(`Du bist UMO. Du überträgst Teile eines Artikels von ${HOST} in ${lv === "sehr" ? "Leichte Sprache" : "Einfache Sprache"}.
+${rules}
+Inhalt: Bleib genau bei den Fakten aus dem Text. Erfinde nichts dazu. Bewerte nichts, was der Text nicht bewertet. Namen, Daten und die Bedeutung von Zahlen bleiben richtig.
+Form: Überschriften (type "h") bleiben kurz, höchstens 6 Wörter. Listen (type "list") bleiben Listen, ein Punkt pro Zeile.
 ${needsLine()}
 Titel des Artikels: """${page.article.title}"""
 Teile als JSON: ${JSON.stringify(batch.map(b => ({ id: b.id, type: b.type, text: b.text })))}
 Antworte nur mit JSON: {${first ? '"title":"einfacher Titel",' : ""}"items":[{"id":"...","text":"..."}]${first ? ',"glossary":[{"word":"...","explanation":"ein kurzer, einfacher Satz"}]' : ""}}
-Gib für jede id genau einen Eintrag zurück.${first ? " glossary: 3 bis 6 schwere Wörter aus dem ganzen Abschnitt." : ""}`, { maxTokens: 4000 });
+Gib für jede id genau einen Eintrag zurück.${first ? ` glossary: 3 bis 6 schwere Wörter aus dem Original, jeweils mit einer Erklärung in ${lv === "sehr" ? "Leichter Sprache, höchstens 2 kurze Sätze" : "Einfacher Sprache, ein kurzer Satz"}.` : ""}`, { maxTokens: 4000 });
         (r.items || []).forEach(it => { if (it && it.id && typeof it.text === "string") cache.items[it.id] = it.text; });
         if (first) { cache.glossary = Array.isArray(r.glossary) ? r.glossary.filter(g => g && g.word && g.explanation) : []; if (r.title) cache.title = String(r.title); }
       } catch (e) {
@@ -1162,19 +1188,20 @@ Gib für jede id genau einen Eintrag zurück.${first ? " glossary: 3 bis 6 schwe
   async function loadSummary(my) {
     const box = $("#rSummary"); if (!box) return;
     box.innerHTML = `<section class="summary" aria-live="polite"><h3><span class="dot"></span>Das Wichtigste in Kürze</h3><div class="thinking" style="padding:4px 0"><span class="dots"><i></i><i></i><i></i></span></div></section>`;
-    let pts = summaryCache && summaryCache.needs === cfg.needs ? summaryCache.pts : null, note = "";
+    let pts = summaryCache && summaryCache.needs === cfg.needs && summaryCache.lv === level() ? summaryCache.pts : null, note = "";
     if (!pts) {
       if (hasKey()) {
         try {
           const text = textBlocks().map(b => b.text).join("\n").slice(0, 14000);
-          const r = await ask(`Fasse diesen Artikel von ${HOST} in genau 3 kurzen Punkten zusammen, für Menschen, die sich schwer lange konzentrieren können. Je Punkt ein einfacher Satz. Bleib bei den Fakten, erfinde nichts, bewerte nichts.
+          const r = await ask(`Fasse diesen Artikel von ${HOST} in genau 3 kurzen Punkten zusammen. Je Punkt ein Satz. Bleib bei den Fakten, erfinde nichts, bewerte nichts.
+${langRules()}
 ${needsLine()}
 Titel: """${page.article.title}"""
 Artikel:
 ${text}
 Antworte nur mit JSON: {"points":["...","...","..."]}`, { maxTokens: 500 });
           pts = (r.points || []).slice(0, 4).map(String);
-          summaryCache = { needs: cfg.needs, pts };
+          summaryCache = { needs: cfg.needs, lv: level(), pts };
         } catch (e) { note = errText(e, "retry-reader"); }
       } else note = errText({ code: "no_key" });
       if (!pts || !pts.length) { pts = textBlocks().filter(b => b.type === "p").slice(0, 3).map(b => sentences(b.text)[0]); note = (note ? note + " " : "") + "Bis dahin: die ersten Sätze des Artikels."; }
@@ -1413,7 +1440,7 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
       case "s-prev": if (S.idx > 0) { snackStop(); S.idx--; S.sent = 0; S.t = 0; renderSnack(); } break;
       case "s-full": setMode("snack", false); break;
       case "qa-send": askProduct($("#qaIn").value); break;
-      case "lvl": M.structure = b.dataset.level === "sehr"; for (const st of CH.values()) st.level = null; renderReader(); break;
+      case "lvl": M.structure = b.dataset.level === "sehr"; for (const st of CH.values()) { st.level = null; st.exp = {}; } renderReader(); break;
       case "retry-reader": {
         for (const k of Object.keys(snackCache)) if (snackCache[k].failed) delete snackCache[k];
         if (summaryCache === null || summaryCache && !summaryCache.pts) summaryCache = null;

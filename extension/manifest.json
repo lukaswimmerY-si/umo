@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "UMO – Unified Modes",
   "short_name": "UMO",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Fokus, Einfach, Snack und Calming Modus für jede Website. Ein Prototyp von Studio Y-si.",
   "icons": {
     "16": "icons/icon16.png",

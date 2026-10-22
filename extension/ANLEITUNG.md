@@ -1,4 +1,4 @@
-# UMO – Chrome-Extension (Prototyp 0.7.2)
+# UMO – Chrome-Extension (Prototyp 0.7.3)
 
 UMO legt das Modus-System aus dem Y-si-Prototyp über echte Websites:
 Fokus, Einfach, Snack und Calming, dazu „Teile deine Bedürfnisse“.
@@ -37,6 +37,17 @@ Ohne Schlüssel funktionieren: Ablenkendes ausblenden, Inhalte strukturieren, Sn
 | Jede Seite | Calming | Seite beruhigen, ruhige Klänge, Atemübung |
 
 Das UMO-Symbol in der Browserleiste blendet den Modus-Knopf ein und aus.
+
+## Neu in 0.7.3: Einfache Sprache und Leichte Sprache nach Norm
+
+Der Einfach Modus bietet jetzt zwei klar getrennte Stufen:
+
+- **Einfache Sprache** nach DIN 8581-1:2024-05. Für alle, die einen Text schnell und sicher verstehen wollen. Fließtext, kurze Sätze, Alltagswörter, Fachwörter erklärt, das Wichtigste zuerst.
+- **Leichte Sprache** nach DIN SPEC 33429:2025-03. Für Menschen mit Lernschwierigkeiten. Ein Gedanke pro Satz, jeder Satz in einer eigenen Zeile, keine Nebensätze, kein Genitiv, kein Passiv, lange Wörter mit Mediopunkt gegliedert (Bundes·tag), Zahlen greifbar. Große Schrift und viel Zeilenabstand.
+
+Zusammenfassung, Wort-Erklärungen und Grafik-Erklärungen folgen der gewählten Stufe. Der Mediopunkt wird beim Vorlesen nicht mitgesprochen.
+
+Wichtig: Echte Leichte Sprache wird von Menschen aus der Zielgruppe geprüft. Das kann eine KI nicht ersetzen. UMO kennzeichnet das in der Leseansicht.
 
 ## Neu in 0.7.2
 
