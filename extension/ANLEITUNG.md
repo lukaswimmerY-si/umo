@@ -1,0 +1,116 @@
+# UMO – Chrome-Extension (Prototyp 0.6.1)
+
+UMO legt das Modus-System aus dem Y-si-Prototyp über echte Websites:
+Fokus, Einfach, Snack und Calming, dazu „Teile deine Bedürfnisse“.
+
+## Installieren
+
+Empfohlen: mit dem Installer aus dem GitHub-Release, dann kommen Updates automatisch (siehe README im Hauptordner). Von Hand geht es so:
+
+1. Die ZIP-Datei entpacken.
+2. In Chrome `chrome://extensions` öffnen.
+3. Oben rechts den **Entwicklermodus** einschalten.
+4. **Entpackte Erweiterung laden** und den Ordner `umo-extension` wählen.
+5. Die Einstellungsseite öffnet sich. Dort den API-Schlüssel eintragen und auf **Verbindung testen** klicken.
+
+Läuft auch in Edge, Brave und Arc, weil diese Browser auf Chromium aufbauen.
+
+## API-Schlüssel
+
+Einen Schlüssel erstellt ihr in der Claude Console (console.anthropic.com). Setzt dort ein Ausgabenlimit.
+Standard ist Claude Haiku 5.5, weil die Antworten schnell kommen. Für schwierige Grafiken lohnt sich Sonnet 5.5.
+Der Schlüssel bleibt im Speicher der Extension und geht nur an die Claude-API.
+Für Tests mit echten Nutzerinnen und Nutzern gehört er auf einen eigenen Server (siehe „Nächste Schritte“).
+
+Ohne Schlüssel funktionieren: Ablenkendes ausblenden, Inhalte strukturieren, Snack mit Originalsätzen, Calming, Produktauswahl nach Stichworten.
+
+## Was wo funktioniert
+
+| Seite | Modus | Was passiert |
+|---|---|---|
+| Jede Seite | Fokus: Ablenkende Inhalte ausblenden | Werbung, Pop-ups, Countdowns, Autoplay und Animationen verschwinden |
+| Artikel | Fokus: Inhalte zusammenfassen | Leseansicht mit „Das Wichtigste in Kürze“ |
+| Artikel | Einfach: Vereinfachen, Strukturieren | Leseansicht in einfacher Sprache, Originaltext aufklappbar, Wortliste |
+| Artikel | Grafik erklären | UMO nimmt einen Ausschnitt der Grafik auf und erklärt ihn (lang oder kurz) |
+| Artikel | Snack | Der Artikel als Player in 4 bis 6 Paketen, wird vorgelesen |
+| Shop | Fokus: Auswahl verdichten | Wunsch eingeben oder sagen, zum Beispiel „weißes T-Shirt bis 25 €“. UMO nutzt die Suche der Seite, setzt den Farbfilter der Seite, blendet alles über dem Preis und in anderen Farben aus und stellt die 3 besten Treffer nach vorne |
+| Jede Seite | Calming | Seite beruhigen, ruhige Klänge, Atemübung |
+
+Das UMO-Symbol in der Browserleiste blendet den Modus-Knopf ein und aus.
+
+## Neu in 0.6.1
+
+- Fehlermeldungen nennen den Grund: Guthaben aufgebraucht, Modell nicht verfügbar, Claude überlastet, keine Verbindung. Darunter steht die genaue Meldung, dazu „Nochmal versuchen“.
+- Bei Überlastung oder kurzen Störungen versucht UMO es automatisch bis zu dreimal.
+- Unsaubere KI-Antworten (zum Beispiel Anführungszeichen mitten im Text) repariert UMO selbst.
+- In den Einstellungen gibt es unter „KI-Zugang“ die Liste „Letzte KI-Fehler“.
+- Der Snack Modus trennt Sätze nicht mehr bei Daten und Abkürzungen („6. Februar“, „z. B.“, „21. Deutschen Bundestag“).
+
+## Neu in 0.6: Infografiken im Einfach Modus
+
+- **In der Leseansicht:** Die echten Grafiken stehen an ihrer Stelle im vereinfachten Text. Darunter erklärt UMO jede Grafik in einfacher Sprache (lange oder kurze Erklärung), zeigt die Zahlen als Tabelle und nimmt Fragen an, per Mikrofon oder Tastatur. Wer per Sprache fragt, bekommt die Antwort vorgelesen.
+- **Auf der Originalseite:** Die neue Kachel „Grafiken auf der Seite erklären“ setzt unter jede Grafik den Knopf „Grafik einfach erklärt“ mit derselben Erklärbox.
+- **Datawrapper-Grafiken** (zum Beispiel bpb.de, viele Nachrichtenseiten) liest UMO direkt über ihre Daten statt über ein Bild. Die Zahlen stimmen damit exakt. Leitet eine Grafik auf eine neuere Version weiter, nutzt UMO die neuere.
+- Grafiken, die erst beim Scrollen laden, holt UMO vorher selbst.
+- Ohne API-Schlüssel zeigt UMO bei Datawrapper-Grafiken die Zahlen als Tabelle mit Beschreibung und Quelle.
+
+## Neu in 0.5: Automatische Updates
+
+UMO prüft alle 5 Minuten, ob eine neue Version bereitliegt, und startet sich dann selbst neu. Zusammen mit dem UMO-Updater und den GitHub-Releases kommen neue Versionen ohne Handarbeit auf alle Rechner. Einrichtung: siehe README im Hauptordner des Repositorys.
+
+## Neu in 0.4: Modi passend zur Seite
+
+UMO erkennt zuerst, was für eine Seite offen ist, und zeigt nur die Modi, die dort helfen. Oben im Sheet steht „Passend für diese Seite: …“.
+
+| Seitentyp | Fokus | Einfach | Snack | Calming |
+|---|---|---|---|---|
+| Artikel, Behörde, Studie | Ablenkung ausblenden, Zusammenfassen | Vereinfachen, Strukturieren, Grafiken erklären | ja | ja |
+| Produktseite | Ablenkung ausblenden | Produkt einfach erklären, Fragen zum Produkt stellen | – | ja |
+| Shop-Übersicht | Ablenkung ausblenden, Auswahl verdichten | Seite einfach erklären | – | ja |
+| Sonstige Website | Ablenkung ausblenden | Seite einfach erklären | – | ja |
+
+Erkennung: strukturierte Daten der Seite (zum Beispiel NewsArticle, Product, ProductGroup), Kauf-Knöpfe, Anzahl der Produktkacheln und Textmenge. Live geprüft auf zalando.de (Übersicht und Produktseite).
+
+„Produkt einfach erklären“ fasst Material, Passform, Größe und Pflege zusammen und beantwortet Fragen, nur mit dem, was auf der Seite steht. Ohne KI zeigt UMO die wichtigsten Angaben der Seite als Liste.
+
+## Neu in 0.3
+
+- Zalando-Filter live geprüft und eingebaut: Farbe, Größe, Höchstpreis und Bereich (Damen, Herren, Kinder) setzt UMO jetzt direkt als Zalando-Filter.
+  Beispiel: „grünes Hemd in Größe XL für 40 Euro“ öffnet `/katalog/_gruen_groesse-XL/?q=hemd&price_to=40`.
+- „Rosa“ wird bei Zalando als „Pink“ gefiltert, weil Zalando keinen eigenen Rosa-Filter hat.
+- Ist der Farbfilter von Zalando gesetzt, filtert UMO nicht zusätzlich nach Farbwörtern. Sonst würden passende Artikel verschwinden, deren Name die Farbe nicht nennt.
+- Den Preis prüft UMO trotzdem noch einmal selbst, weil Zalando vereinzelt teurere Artikel zeigt.
+- Ausgeblendete Bereiche wie der Mini-Warenkorb werden nie angefasst.
+- Ohne Angabe von Damen, Herren oder Kinder nutzt Zalando die Einstellung aus dem jeweiligen Konto.
+
+## Neu in 0.2
+
+- Zalando: UMO nutzt die echte Suche (`/katalog/?q=…`) und den Farbfilter der Seite.
+- Die Produktseite selbst wird verändert: Unpassendes verschwindet, die besten Treffer stehen vorne und sind orange markiert. Oben zeigt eine Leiste „UMO zeigt 5 von 84“ mit „Alle zeigen“.
+- Farbe und Höchstpreis versteht UMO auch ohne KI.
+- „Was erkennt UMO hier?“ unten im Sheet zeigt, was UMO auf der Seite findet. Bitte bei Fehlern einen Screenshot davon schicken.
+
+## Gute Seiten zum Ausprobieren
+
+Artikel: tagesschau.de, sueddeutsche.de, zeit.de, spiegel.de, nachrichtenleicht.de (zum Vergleich).
+Shops: zalando.de (mit eigener Anpassung), aboutyou.de, otto.de (allgemein).
+Behörden und Statistik: destatis.de (Pressemitteilungen mit Tabellen), bundeshaushalt.de, umweltbundesamt.de (Daten zu Treibhausgasen), de.statista.com/infografik.
+PDFs funktionieren noch nicht, weil Chrome sie in einem eigenen Viewer öffnet.
+
+## Bekannte Grenzen
+
+- UMO erkennt Artikel und Produkte allgemein, nicht pro Website. Auf manchen Seiten trifft die Erkennung nicht.
+- Bei Paywalls sieht UMO nur, was auf der Seite sichtbar ist.
+- „Auswahl verdichten“ sieht nur die geladenen Produkte. Lädt die Seite beim Scrollen mehr nach, werden diese nicht gefiltert.
+- Auf anderen Shops als Zalando setzt UMO Preis und Größe nicht als Filter der Seite, sondern filtert selbst.
+- Seiten mit sehr strengen Sicherheitsregeln können einzelne Funktionen blockieren.
+- Spracheingabe braucht die Mikrofon-Freigabe der jeweiligen Website.
+- Die KI kann sich irren. Darum gibt es überall den Originaltext.
+
+## Nächste Schritte
+
+- Kleiner Server für den API-Schlüssel, damit Testpersonen keinen eigenen brauchen.
+- Safari-Version für iPhone und iPad mit `xcrun safari-web-extension-converter`.
+- Adapter für die wichtigsten Pilot-Websites, damit Erkennung und Produktsuche dort sicher sitzen.
+
+Enthält Mozilla Readability (Apache 2.0, siehe `content/READABILITY-LICENSE.md`) und die Schrift Figtree (SIL Open Font License).

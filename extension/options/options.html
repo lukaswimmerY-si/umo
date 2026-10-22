@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UMO Einstellungen</title>
+<style>
+@font-face{font-family:"UMO Figtree";src:url(../fonts/figtree-400.woff2) format("woff2");font-weight:400}
+@font-face{font-family:"UMO Figtree";src:url(../fonts/figtree-600.woff2) format("woff2");font-weight:600}
+@font-face{font-family:"UMO Figtree";src:url(../fonts/figtree-700.woff2) format("woff2");font-weight:700}
+:root{--bg:#EAE9DF;--ink:#000;--muted:#5f5d55;--card:#fff;--line:#d6d3c7;--orange:#FF541B;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--ink:#EAE9DF;--muted:#a9a69b;--card:#1E2024;--line:#33352f;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "UMO Figtree","Helvetica Neue",Arial,sans-serif}
+main{max-width:640px;margin:0 auto;padding:48px 24px 80px}
+h1{font-size:64px;line-height:.9;letter-spacing:-.045em;margin:0 0 12px;font-weight:700}
+.sub{color:var(--muted);margin:0 0 36px}
+section{background:var(--card);border-radius:28px;padding:22px 22px 20px;margin-bottom:14px}
+h2{font-size:20px;margin:0 0 6px;font-weight:600}
+p{margin:0 0 12px}
+.muted{color:var(--muted);font-size:14px}
+label{display:block;font-weight:600;font-size:15px;margin:14px 0 6px}
+input[type=password],input[type=text],select,textarea{width:100%;font:inherit;color:inherit;background:var(--bg);border:1.5px solid var(--line);border-radius:14px;padding:12px 14px}
+textarea{min-height:100px;resize:vertical}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}
+button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:12px 22px;background:#000;color:#fff;cursor:pointer}
+@media (prefers-color-scheme:dark){button{background:#EAE9DF;color:#000}}
+button.ghost{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--ink)}
+.status{font-weight:600;font-size:14px}
+.status.ok::before,.status.bad::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:var(--orange)}
+.check{display:flex;gap:10px;align-items:center;font-weight:500}
+.check input{width:20px;height:20px;accent-color:var(--orange)}
+ul{margin:6px 0 0;padding-left:20px}
+code{font-size:14px}
+:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Umo.</h1>
+  <p class="sub">Einstellungen für den UMO-Prototyp. Alles hier bleibt in diesem Browser.</p>
+
+  <section>
+    <h2>KI-Zugang</h2>
+    <p>Für Vereinfachen, Zusammenfassen, Grafiken erklären und die Produktauswahl braucht UMO Claude. Trage dafür einen eigenen API-Schlüssel aus der Claude Console ein. Ohne Schlüssel laufen die Funktionen ohne KI weiter.</p>
+    <label for="key">API-Schlüssel</label>
+    <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+    <label for="model">Modell</label>
+    <select id="model">
+      <option value="claude-haiku-5-5">Claude Haiku 5.5 (schnell, empfohlen für Tests)</option>
+      <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (genauer, langsamer)</option>
+    </select>
+    <div class="row"><button id="save">Speichern</button><button id="test" class="ghost">Verbindung testen</button><span id="st" class="status" role="status"></span></div>
+    <details id="errBox" style="margin-top:14px"><summary class="muted" style="cursor:pointer">Letzte KI-Fehler</summary><div id="errList" class="muted" style="margin-top:8px;font-size:13px"></div></details>
+    <p class="muted" style="margin-top:14px">Der Schlüssel liegt nur im Speicher dieser Extension und wird nur an api.anthropic.com geschickt. Nutze für Tests einen eigenen Schlüssel mit Ausgabenlimit. Für echte Nutzerinnen und Nutzer gehört der Schlüssel später auf euren Server.</p>
+  </section>
+
+  <section>
+    <h2>Updates</h2>
+    <p id="upState" class="status">Prüfe …</p>
+    <p id="upDetail" class="muted"></p>
+    <div class="row"><button id="upCheck" class="ghost">Jetzt nach Updates suchen</button><button id="upRestart" hidden>UMO jetzt neu starten</button></div>
+    <p class="muted" style="margin-top:14px">Mit dem UMO-Updater lädt UMO neue Versionen automatisch und startet sich selbst neu. Offene Tabs zeigen die neue Version nach dem Neuladen der Seite.</p>
+  </section>
+
+  <section>
+    <h2>Deine Bedürfnisse</h2>
+    <p class="muted">Das, was du im UMO-Chat sagst, landet hier. Du kannst es auch direkt bearbeiten.</p>
+    <textarea id="needs" aria-label="Deine Bedürfnisse"></textarea>
+    <div class="row"><button id="saveNeeds">Speichern</button></div>
+  </section>
+
+  <section>
+    <h2>Anzeige</h2>
+    <label class="check"><input type="checkbox" id="show"> Den „Modus“-Knopf auf allen Seiten zeigen</label>
+    <p class="muted" style="margin-top:8px">Ist das aus, holst du UMO mit einem Klick auf das UMO-Symbol in der Browserleiste.</p>
+    <label>Ausgeblendet auf</label>
+    <div id="hidden" class="muted"></div>
+  </section>
+
+  <section>
+    <h2>So testet ihr</h2>
+    <ul>
+      <li>Artikel, zum Beispiel auf tagesschau.de oder sueddeutsche.de: Einfach, Snack und „Inhalte zusammenfassen“.</li>
+      <li>Grafiken: In der Leseansicht auf „Grafik erklären“ tippen. UMO macht dafür einen Ausschnitt der Seite.</li>
+      <li>Shops, zum Beispiel zalando.de: Fokus Modus, „Auswahl verdichten“.</li>
+      <li>Überall: „Ablenkende Inhalte ausblenden“ und Calming Modus.</li>
+    </ul>
+  </section>
+</main>
+<script src="options.js"></script>
+</body>
+</html>

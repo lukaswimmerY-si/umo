@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "UMO – Unified Modes",
+  "short_name": "UMO",
+  "version": "0.6.1",
+  "description": "Fokus, Einfach, Snack und Calming Modus für jede Website. Ein Prototyp von Studio Y-si.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "UMO ein- oder ausblenden",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options/options.html",
+  "permissions": [
+    "alarms",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content/readability.js",
+        "content/readerable.js",
+        "content/umo.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/umo.css",
+        "fonts/*.woff2"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ]
+}
