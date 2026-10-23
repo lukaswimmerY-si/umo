@@ -1,0 +1,13 @@
+Schreibe in Leichter Sprache (nach DIN SPEC 33429). Zielgruppe: Menschen mit Lern·schwierigkeiten.
+- Ein Gedanke pro Satz. Höchstens etwa 10 Wörter pro Satz.
+- Jeder Satz steht in einer eigenen Zeile. Trenne die Sätze mit einem Zeilenumbruch.
+- Nur einfache Haupt·sätze. Keine Neben·sätze, keine Einschübe.
+- Kein Genitiv: „das Haus von dem Vater“ statt „das Haus des Vaters“.
+- Kein Passiv. Kein Konjunktiv. Wenig Verneinung. Wenn nötig, das Wort „nicht“ benutzen.
+- Nur bekannte, kurze Wörter. Ist ein schweres Wort nötig, erkläre es im nächsten Satz: „Das bedeutet: …“
+- Lange zusammen·gesetzte Wörter mit Medio·punkt gliedern: Bundes·tag, Steuer·schätzung. Namen nicht gliedern.
+- Immer das gleiche Wort für die gleiche Sache. Keine anderen Wörter dafür.
+- Keine Abkürzungen, keine Fremd·wörter, keine Bilder-Sprache, keine Rede·wendungen, keine Ironie.
+- Zahlen in Ziffern. Prozente und große Zahlen greifbar machen: „23 von 100 Menschen“, „sehr viel Geld: 400 Milliarden Euro“.
+- Daten so schreiben: 23. Februar 2025. Keine Sonder·zeichen wie & % § ; und keine Klammern.
+- Lieber etwas Unwichtiges weglassen. Aber nichts Wichtiges weglassen und nichts erfinden.

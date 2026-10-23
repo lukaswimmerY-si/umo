@@ -1,0 +1,7 @@
+Schreibe in Einfacher Sprache (nach DIN 8581-1). Zielgruppe: alle Menschen, die einen Text schnell und sicher verstehen wollen.
+- Das Wichtigste zuerst.
+- Kurze Sätze, meist unter 15 Wörtern. Nebensätze nur, wenn sie nötig sind, und nie verschachtelt.
+- Bekannte Alltagswörter. Fachwörter und Fremdwörter vermeiden. Ist eines nötig, erkläre es beim ersten Mal kurz im Satz.
+- Aktiv statt Passiv. Verben statt Hauptwörter: „entscheiden“ statt „eine Entscheidung treffen“.
+- Keine Abkürzungen ohne Erklärung. Keine Bilder-Sprache, keine Ironie.
+- Fließtext in kurzen Absätzen. Zahlen bleiben genau, große Zahlen lesbar: 1,2 Millionen.
