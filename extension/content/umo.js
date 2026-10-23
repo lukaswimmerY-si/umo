@@ -25,6 +25,7 @@
   });
   const ICON = {
     wave: '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4c1 6 2 9 4 12-2 3-3 6-4 12-1-6-2-9-4-12 2-3 3-6 4-12z" fill="currentColor"/><path d="M8 11c.6 2.5 1.2 3.7 2.4 5-1.2 1.3-1.8 2.5-2.4 5-.6-2.5-1.2-3.7-2.4-5C6.8 14.7 7.4 13.5 8 11zM24 11c.6 2.5 1.2 3.7 2.4 5-1.2 1.3-1.8 2.5-2.4 5-.6-2.5-1.2-3.7-2.4-5 1.2-1.3 1.8-2.5 2.4-5z" fill="currentColor"/></svg>',
+    compact: '<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="7" y="4" width="18" height="24" rx="4" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M11.5 11h9M11.5 16h9M11.5 21h5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="25" cy="25" r="5.5" fill="currentColor"/><path d="M22.8 25h4.4M25 22.8v4.4" stroke="#000" stroke-width="1.6" stroke-linecap="round" transform="rotate(45 25 25)"/></svg>',
     text: '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M9 9h14M16 9v15" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>',
     play: '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M11 8l14 8-14 8z" fill="currentColor"/></svg>',
     pause: '<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="10" y="8" width="4" height="16" rx="1.5" fill="currentColor"/><rect x="18" y="8" width="4" height="16" rx="1.5" fill="currentColor"/></svg>',
@@ -505,7 +506,7 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
       const info = INFO[view], on = modeOn(view), ts = tiles(view);
       const desc = view === "einfach" && page.type === "produkt" ? INFO.einfach_produkt : view === "einfach" && page.type !== "artikel" ? INFO.einfach_seite : info.desc;
       const needsBar = `<button class="needsbar" data-act="needs">${ICON.wave.replace("<svg", '<svg class="ic"')}<span><b>${cfg.needs ? "Deine Bedürfnisse" : "Teile deine Bedürfnisse"}</b><small>${cfg.needs ? esc(cfg.needs.slice(0, 70)) + (cfg.needs.length > 70 ? " …" : "") : "Gilt für alle Modi und alle Websites"}</small></span><em>${cfg.needs ? "Ändern" : "Los"}</em></button>`;
-      const fokusTile = view === "fokus" ? `<button class="tile${ts.length % 2 ? "" : " wide"}" data-act="focus-page">${ICON.wave.replace("<svg", '<svg class="ic"')}Kompakt zusammenfassen<small>Auf einer eigenen Seite</small></button>` : "";
+      const fokusTile = view === "fokus" ? `<button class="tile${ts.length % 2 ? "" : " wide"}" data-act="focus-page">${ICON.compact.replace("<svg", '<svg class="ic"')}Kompakt zusammenfassen<small>Auf einer eigenen Seite</small></button>` : "";
       const keyNote = !hasKey() && view !== "calm" ? `<div class="keynote">Ohne API-Schlüssel zeigt UMO nur, was es ohne KI kann: Ablenkung ausblenden, Strukturieren, die wichtigsten Angaben der Seite und Calming. <button data-act="options">Schlüssel eintragen</button></div>` : "";
       inner = `<p class="ptype">Passend für diese Seite: ${TYPE_LABEL[page.type]}</p><div class="mtabs" role="tablist" aria-label="Modi">${modes.map(m => `<button role="tab" data-act="tab" data-view="${m}" aria-selected="${m === view}">${modeOn(m) ? '<i class="on"></i>' : ""}${INFO[m].title.replace(" Modus", "")}</button>`).join("")}</div>${needsBar}
         <div class="mhead"><h2 id="umoT">${info.title}</h2><button class="status" data-act="all" data-view="${view}" aria-pressed="${on}" aria-label="${info.title} ${on ? "ausschalten" : "einschalten"}"><i></i>${on ? "An" : "Aus"}</button></div>
@@ -1383,24 +1384,61 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
     return { bg: css(bg), fg: css(fg), surf: css(surf), accent: css(accent), onAccent: lum(accent) > 0.6 ? "#111" : "#fff", dark,
       head: cs(h1).fontFamily, body: cs(para).fontFamily, logo, site, hero };
   }
-  function pageImages() {
-    return [...document.querySelectorAll("main img, [class*=gallery] img, [class*=product] img, img")]
-      .filter(i => !i.closest("umo-root,umo-inline,header,footer,nav") && i.naturalWidth >= 400 && i.getBoundingClientRect().width >= 200)
-      .map(i => i.currentSrc || i.src).filter((v, i, a) => v && a.indexOf(v) === i).slice(0, 4);
+  const pickSrcset = ss => { if (!ss) return ""; const c = ss.split(",").map(x => x.trim().split(/\s+/)).filter(x => x[0]).map(([u, w]) => ({ u, w: parseInt(w) || 0 })); c.sort((a, b) => b.w - a.w); const m = c.find(x => x.w && x.w <= 1600) || c[0]; return m ? m.u : ""; };
+  function pageGallery() {
+    const out = new Map();
+    document.querySelectorAll("picture, img").forEach(el => {
+      if (el.tagName === "IMG" && el.closest("picture")) return;
+      if (el.closest("umo-root, umo-inline, header, nav, footer, [class*=logo], [class*=icon], [aria-hidden=true]")) return;
+      const img = el.tagName === "IMG" ? el : el.querySelector("img");
+      const r = el.getBoundingClientRect();
+      if (r.width && r.width < 140) return;                               // kleine Symbole
+      // Infografiken sind keine Fotos: die erklärt der Einfach Modus
+      const gid = img && img.getAttribute("data-umo-gid"); if (gid && CH.get(gid) && CH.get(gid).explainable) return;
+      if (img && INFO_RE.test([img.getAttribute("alt"), img.closest("figure") && (img.closest("figure").querySelector("figcaption") || {}).innerText].filter(Boolean).join(" "))) return;
+      const srcs = el.tagName === "PICTURE" ? [...el.querySelectorAll("source")].map(x => x.getAttribute("srcset") || x.getAttribute("data-srcset")).filter(Boolean) : [];
+      // Platzhalter noch nicht geladener Bilder sind winzig: Größe nur prüfen, wenn es keine eigene Bildquelle gibt
+      const hasSet = srcs.length || (img && (img.getAttribute("srcset") || img.getAttribute("data-srcset") || img.getAttribute("data-src")));
+      if (!hasSet && img && img.complete && img.naturalWidth && img.naturalWidth < 300) return;
+      let u = pickSrcset(srcs[0]) || (img && (pickSrcset(img.getAttribute("srcset") || img.getAttribute("data-srcset")) || img.currentSrc || img.getAttribute("data-src") || img.getAttribute("src"))) || "";
+      if (!u || /^data:|\.svg(\?|#|$)|logo|icon|sprite|badge|flag|avatar|pixel|spacer|tracking|ai-assistant/i.test(u)) return;
+      try { u = new URL(u, location.href).href; } catch (e) { return; }
+      const alt = ((img && img.getAttribute("alt")) || "").replace(/\s+/g, " ").trim();
+      if (!out.has(u)) out.set(u, alt);
+    });
+    return [...out.entries()].slice(0, 60).map(([src, alt]) => ({ src, alt }));
   }
   function mainAction() {
     return [...document.querySelectorAll("a, button, [role=button], input[type=submit]")].find(b => !b.closest("umo-root") && b.getBoundingClientRect().width > 0 &&
       /in den warenkorb|zum warenkorb|in die tasche|add to (cart|bag|basket)|jetzt kaufen|kaufen|bestellen|probefahrt|termin|anmelden|registrieren|kontakt|beantragen|buchen/i.test(b.innerText || b.value || b.getAttribute("aria-label") || ""));
   }
+  function ldFacts() {
+    const keep = [];
+    document.querySelectorAll('script[type="application/ld+json"]').forEach(sc => {
+      try {
+        const walk = o => { if (!o || typeof o !== "object") return; if (Array.isArray(o)) return o.forEach(walk); if (o["@graph"]) walk(o["@graph"]);
+          const t = [].concat(o["@type"] || []).join(" "); if (/car|vehicle|product|offer|event|service|recipe|place/i.test(t)) keep.push(o); };
+        walk(JSON.parse(sc.textContent));
+      } catch (e) {}
+    });
+    return keep.length ? JSON.stringify(keep, (k, v) => /^(@context|@id|image|logo|url|sameAs|potentialAction)$/.test(k) ? undefined : v).slice(0, 4000) : "";
+  }
   function focusSourceText() {
-    if (page.type === "artikel") { const a = getArticle(); if (a) return { title: a.title, text: textBlocks().map(b => (b.type === "h" ? "## " : "") + b.text).join("\n") }; }
-    const main = document.querySelector("main, [role=main], article") || document.body;
-    const clone = main.cloneNode(true); clone.querySelectorAll("script,style,nav,footer,umo-root,umo-inline,iframe,noscript").forEach(x => x.remove());
-    return { title: (document.querySelector("h1") || {}).innerText || document.title, text: (clone.innerText || "").replace(/\n{3,}/g, "\n\n") };
+    if (page.type === "artikel") { const a = getArticle(); if (a) return { title: a.title, text: textBlocks().map(b => (b.type === "h" ? "## " : "") + b.text).join("\n"), ld: "" }; }
+    const main = document.querySelector("main, [role=main]") || document.body;
+    const clone = main.cloneNode(true);
+    clone.querySelectorAll("script,style,noscript,nav,header,footer,umo-root,umo-inline,iframe,svg,[class*=cookie],[id*=cookie],[class*=consent]").forEach(x => x.remove());
+    // Zeilenumbrüche an Blöcken setzen und textContent lesen: so kommen auch eingeklappte Reiter und Akkordeons mit
+    clone.querySelectorAll("h1,h2,h3,h4,h5,p,li,dt,dd,tr,th,td,section,article,div,br").forEach(e => e.append("\n"));
+    const text = (clone.textContent || "").replace(/[ \t\u00a0]+/g, " ").split("\n").map(l => l.trim()).filter((l, i, arr) => l && l !== arr[i - 1]).join("\n");
+    return { title: (document.querySelector("h1") || {}).innerText || document.title, text, ld: ldFacts() };
   }
   async function openFocusPage() {
     closeLayer(); stopSpeak();
-    const b = brand(), src = focusSourceText(), act = mainAction(), imgs = page.type === "produkt" ? pageImages() : [];
+    await prepareLazy();
+    const b = brand(), src = focusSourceText(), act = mainAction(), imgs = pageGallery();
+    fgImgs = imgs;
+    if (!b.hero && imgs[0]) b.hero = imgs[0].src;
     const st = `--fb:${b.bg};--ff:${b.fg};--fs:${b.surf};--fa:${b.accent};--fon:${b.onAccent};--fh:${b.head};--fbody:${b.body}`;
     const shell = inner => `<div class="fpage${b.dark ? " fdark" : ""}" style="${esc(st)}" role="dialog" aria-modal="true" aria-label="Deine Zusammenfassung">
       <header class="fbar"><span class="flogo">${b.logo || `<b>${esc(b.site)}</b>`}</span><button class="fclose" data-act="close">Zur Seite</button></header>
@@ -1414,17 +1452,20 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
       try {
         d = await ask(`Du bist UMO. Mach aus dieser Seite (${TYPE_LABEL[page.type]} auf ${HOST}) eine kompakte Zusammenfassung für Menschen, die sich schwer lange konzentrieren können, zum Beispiel mit ADHS.
 ${RULES_EINFACH}
-Aufbau: 2 bis 4 Kapitel. Das Wichtigste zuerst. Jedes Kapitel hat einen kurzen Titel mit 1 bis 3 Wörtern und einem Punkt am Ende, zum Beispiel „Das Wichtigste.“ oder „Technische Details.“. Jedes Kapitel hat genau eine Form:
-- "punkte": 2 bis 4 kurze Sätze.
-- "zahlen": 2 bis 5 wichtige Zahlen genau aus dem Text. wert ist kurz und mit Einheit, zum Beispiel „184 PS“ oder „22,6 %“. label sagt in 1 bis 3 Wörtern, was es ist.
+Kompakt, aber vollständig: Behalte alle wichtigen Fakten, die Varianten und Modelle, konkrete Beispiele aus dem Text (zum Beispiel Ausstattungen, Farben, Pakete, Preise, Termine) und die wichtigen Zahlen. Lass nur Werbesprache, Wiederholungen, Floskeln und Navigation weg. Wer nur deine Zusammenfassung liest, soll nichts Wichtiges verpassen.
+Aufbau: 3 bis 6 Kapitel. Das Wichtigste zuerst. Jedes Kapitel hat einen kurzen Titel mit 1 bis 3 Wörtern und einem Punkt am Ende, zum Beispiel „Das Wichtigste.“, „Technische Daten.“, „Ausstattung.“ oder „Preise.“. Jedes Kapitel hat genau eine Form:
+- "punkte": 2 bis 5 kurze Sätze. Nenne darin konkrete Beispiele statt allgemeiner Aussagen.
+- "zahlen": 2 bis 8 wichtige Zahlen genau aus dem Text, zum Beispiel technische Daten. wert ist kurz und mit Einheit, zum Beispiel „184 PS“ oder „22,6 %“. label sagt in 1 bis 3 Wörtern, was es ist.
 - "vergleich": nur wenn der Text 3 bis 6 gleichartige Zahlen mit derselben Einheit nennt, die man gut vergleichen kann. zahl ist eine reine Zahl, anzeige ist die Zahl mit Einheit.
 Nimm nur Zahlen, die wirklich im Text stehen. Erfinde nichts. Bewerte nichts. Keine Zahlen ohne Bedeutung, zum Beispiel keine Telefonnummern oder Artikelnummern.
 naechster: Nur bei Produkt, Shop oder Website: was man als Nächstes tun kann, in 2 bis 5 Wörtern, zum Beispiel „Probefahrt vereinbaren“. Bei Artikeln leer.
 ${needsLine()}
 Titel: """${src.title}"""
-Text:
-"""${src.text.slice(0, 14000)}"""
-Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung":"ein Satz","kapitel":[{"titel":"...","form":"punkte","punkte":["..."]},{"titel":"...","form":"zahlen","zahlen":[{"wert":"...","label":"..."}]},{"titel":"...","form":"vergleich","vergleich":{"einheit":"...","items":[{"label":"...","zahl":0,"anzeige":"..."}]}}],"naechster":""}`, { maxTokens: 1800 });
+${src.ld ? `Strukturierte Daten der Seite (JSON-LD):
+"""${src.ld}"""
+` : ""}Text:
+"""${src.text.slice(0, 24000)}"""
+Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung":"ein Satz","kapitel":[{"titel":"...","form":"punkte","punkte":["..."]},{"titel":"...","form":"zahlen","zahlen":[{"wert":"...","label":"..."}]},{"titel":"...","form":"vergleich","vergleich":{"einheit":"...","items":[{"label":"...","zahl":0,"anzeige":"..."}]}}],"naechster":""}`, { maxTokens: 3200 });
         fpCache = { href: location.href, needs: cfg.needs, d };
       } catch (e) { if ($(".fpage")) $(".fload").outerHTML = `<p class="cerr fpad">${errText(e, "focus-page")}</p>`; return; }
     }
@@ -1435,26 +1476,36 @@ Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung
       const hs = [...document.querySelectorAll("main h2, article h2, h2")].filter(h => !h.closest("umo-root")).map(h => h.innerText.trim()).filter(Boolean).slice(0, 5);
       d = { titel: src.title, einleitung: desc, kapitel: hs.length ? [{ titel: "Auf dieser Seite.", form: "punkte", punkte: hs }] : [], naechster: act ? (act.innerText || "").trim().slice(0, 40) : "", ohneKi: true };
     }
-    const kap = (Array.isArray(d.kapitel) ? d.kapitel : []).slice(0, 4);
+    const kap = (Array.isArray(d.kapitel) ? d.kapitel : []).slice(0, 6);
     const extra = [];
-    if (imgs.length) extra.push({ titel: "Bilder.", form: "bilder" });
+    if (imgs.length >= 2) extra.push({ titel: imgs.length > 1 ? "Alle Fotos." : "Foto.", form: "bilder" });
     if (d.naechster && act) extra.push({ titel: "Nächster Schritt.", form: "cta" });
     const all = [...kap, ...extra], n = all.length;
     const chapter = (k, i) => {
       let body = "";
-      if (k.form === "zahlen") body = `<div class="fcard fnums">${(k.zahlen || []).slice(0, 5).map(z => `<div class="fnum"><span>${esc(z.label)}</span><b>${esc(z.wert)}</b></div>`).join("")}</div>`;
+      if (k.form === "zahlen") body = `<div class="fcard fnums${(k.zahlen || []).length > 4 ? " two" : ""}">${(k.zahlen || []).slice(0, 8).map(z => `<div class="fnum"><span>${esc(z.label)}</span><b>${esc(z.wert)}</b></div>`).join("")}</div>`;
       else if (k.form === "vergleich" && k.vergleich && Array.isArray(k.vergleich.items)) {
         const it = k.vergleich.items.filter(x => Number.isFinite(+x.zahl)).slice(0, 6), mx = Math.max(...it.map(x => Math.abs(+x.zahl))) || 1;
         body = `<div class="fcard fcmp" role="img" aria-label="${esc(it.map(x => x.label + " " + x.anzeige).join(", "))}">${it.map(x => `<div class="fcrow"><span class="fcl">${esc(x.label)}</span><b>${esc(x.anzeige)}</b><span class="fcbar${+x.zahl < 0 ? " neg" : ""}"><i style="width:${Math.max(2, Math.abs(+x.zahl) / mx * 100).toFixed(1)}%"></i></span></div>`).join("")}</div>`;
       }
-      else if (k.form === "bilder") body = `<div class="fimgs">${imgs.slice(0, 2).map(u => `<img src="${esc(u)}" alt="">`).join("")}</div>`;
+      else if (k.form === "bilder") body = `<div class="fgal" id="fgal">${imgs.map((im, j) => `<button class="fth${j >= 9 ? " more" : ""}" data-act="fg-open" data-i="${j}" aria-label="${esc(im.alt || "Foto " + (j + 1))} öffnen"${j >= 9 ? " hidden" : ""}><img src="${esc(im.src)}" alt="" loading="lazy" decoding="async"></button>`).join("")}</div>${imgs.length > 9 ? `<button class="fgmore" data-act="fg-more">Alle ${imgs.length} Fotos zeigen</button>` : ""}`;
       else if (k.form === "cta") body = `<div class="fcard fcta"><p>${esc(d.naechster)}</p><button data-act="fp-cta">${esc((act.innerText || act.value || "Weiter").trim().slice(0, 40))}</button></div>`;
-      else body = `<div class="fcard"><ul class="fpts">${(k.punkte || []).slice(0, 4).map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>`;
-      return `<section class="fsec"><div class="fsh"><h2>${esc(k.titel)}</h2><span>${i + 1}/${n}</span></div>${body}</section>`;
+      else body = `<div class="fcard"><ul class="fpts">${(k.punkte || []).slice(0, 5).map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>`;
+      return `<section class="fsec"><div class="fsh"><h2>${esc(k.titel)}${k.form === "bilder" ? ` <small>${imgs.length}</small>` : ""}</h2><span>${i + 1}/${n}</span></div>${body}</section>`;
     };
     $("#layer").innerHTML = shell(heroHTML(d.titel || src.title, d.einleitung) + all.map(chapter).join("") +
       `<p class="fnote">${d.ohneKi ? "Ohne KI-Schlüssel zeigt UMO nur die Überschriften der Seite. <button data-act='options'>Schlüssel eintragen</button>" : "Von einer KI zusammengefasst. Wichtige Angaben bitte auf der Seite prüfen."}</p>`);
     $(".fclose").focus();
+  }
+  let fgImgs = [], fgI = 0;
+  function fgShow(i) {
+    fgI = (i + fgImgs.length) % fgImgs.length;
+    const im = fgImgs[fgI], fp = $(".fpage"); if (!fp || !im) return;
+    let lb = $(".flb");
+    if (!lb) { fp.insertAdjacentHTML("beforeend", `<div class="flb" role="dialog" aria-modal="true" aria-label="Fotos"><button class="flbx" data-act="fg-close">Schließen</button><button class="flbn prev" data-act="fg-prev" aria-label="Vorheriges Foto">${ICON.next}</button><figure><img alt=""><figcaption></figcaption></figure><button class="flbn" data-act="fg-next" aria-label="Nächstes Foto">${ICON.next}</button></div>`); lb = $(".flb"); }
+    lb.querySelector("img").src = im.src; lb.querySelector("img").alt = im.alt;
+    lb.querySelector("figcaption").textContent = `${fgI + 1} / ${fgImgs.length}${im.alt ? " · " + im.alt : ""}`;
+    lb.querySelector(".flbx").focus();
   }
   function focusCta() {
     const a = mainAction(); closeLayer();
@@ -1585,6 +1636,11 @@ Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung
       case "breath": openBreath(); break;
       case "focus-page": openFocusPage(); break;
       case "fp-cta": focusCta(); break;
+      case "fg-open": fgShow(+b.dataset.i); break;
+      case "fg-next": fgShow(fgI + 1); break;
+      case "fg-prev": fgShow(fgI - 1); break;
+      case "fg-close": { const lb = $(".flb"); if (lb) lb.remove(); const t = $(`.fth[data-i="${fgI}"]`); if (t) { t.hidden = false; t.focus(); } break; }
+      case "fg-more": $$(".fth.more").forEach(x => x.hidden = false); b.remove(); break;
       case "sound": setMode("sound", !M.sound); b.setAttribute("aria-pressed", String(M.sound)); break;
       case "hide-site": cfg.hiddenSites = [...new Set([...(cfg.hiddenSites || []), HOST])]; chrome.storage.local.set({ hiddenSites: cfg.hiddenSites }); ui.visible = false; closeLayer(); renderLauncher(); break;
       case "chip": sendNeed(b.textContent); break;
@@ -1635,6 +1691,11 @@ Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung
     if (e.key === "Enter" && e.target.id === "chatIn") { e.preventDefault(); sendNeed(e.target.value); }
     if (e.key === "Enter" && e.target.id === "gIn") { e.preventDefault(); guideGo(e.target.value); }
     if (e.key === "Enter" && e.target.id === "qaIn") { e.preventDefault(); askProduct(e.target.value); }
+    if ($(".flb")) {
+      if (e.key === "ArrowRight") { fgShow(fgI + 1); e.preventDefault(); e.stopPropagation(); return; }
+      if (e.key === "ArrowLeft") { fgShow(fgI - 1); e.preventDefault(); e.stopPropagation(); return; }
+      if (e.key === "Escape") { onClick({ target: { closest: () => ({ dataset: { act: "fg-close" } }) } }); e.stopPropagation(); return; }
+    }
     if (e.key === "Escape") { if ($("#layer").children.length) { closeLayer(); $("#launch").focus(); } else if (readerModes()) onClick({ target: { closest: () => ({ dataset: { act: "reader-close" } }) } }); }
     e.stopPropagation();
   }
