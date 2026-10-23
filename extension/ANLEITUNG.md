@@ -1,4 +1,4 @@
-# UMO – Chrome-Extension (Prototyp 0.8.1)
+# UMO – Chrome-Extension (Prototyp 0.9)
 
 UMO legt das Modus-System aus dem Y-si-Prototyp über echte Websites:
 Fokus, Einfach, Snack und Calming, dazu „Teile deine Bedürfnisse“.
@@ -37,6 +37,16 @@ Ohne Schlüssel funktionieren: Ablenkendes ausblenden, Inhalte strukturieren, Sn
 | Jede Seite | Calming | Seite beruhigen, ruhige Klänge, Atemübung |
 
 Das UMO-Symbol in der Browserleiste blendet den Modus-Knopf ein und aus.
+
+## Neu in 0.9
+
+- **Bedürfnisse: Immer oder Nur jetzt.** Die Leiste steht ganz oben im Menü und hebt sich mit einem Farbrahmen ab. Wünsche gelten entweder immer (auf allen Websites) oder nur jetzt (bis Chrome geschlossen wird). Jeder Wunsch lässt sich einzeln löschen.
+- **Gezielt suchen auf allen Shop-Seiten.** Auf Shop-Übersichten und Produktseiten öffnet UMO immer zuerst den Fokus Modus mit „Gezielt suchen“ (zum Beispiel „weißes T-Shirt bis 25 Euro“).
+- **Nur dieses Produkt zeigen.** Blendet auf Produktseiten Empfehlungen („Das könnte dir auch gefallen“, „Komplettiere deinen Look“ …) und Farbvarianten in anderen Farben aus.
+- **Kaufpause.** Vor „Zur Kasse“ oder „Jetzt kaufen“ ein ruhiger Moment mit drei Fragen. Weiter geht es nach 10 Sekunden, oder mit „Lieber später“.
+- **Leselineal.** Ein heller Streifen folgt der Maus, der Rest wird abgedunkelt.
+- **Druck rausnehmen** (Calming). Countdowns, „Nur noch 2 auf Lager“, „15 Personen sehen sich das an“ und ähnliche Hinweise verschwinden, auch wenn sie später nachgeladen werden.
+- **Atemübung unter Wasser.** Eine klare Wasserblase mit Lichtmustern, Glanz und sanftem Nachschwingen, dazu Lichtstrahlen und aufsteigende Luftbläschen.
 
 ## Neu in 0.8.1
 

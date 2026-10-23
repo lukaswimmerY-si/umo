@@ -187,6 +187,7 @@
     page.isArticle = page.type === "artikel";
   }
   const TYPE_LABEL = { artikel: "Artikel", produkt: "Produktseite", shop: "Shop-Übersicht", seite: "Website" };
+  const isCommerce = () => page.type === "shop" || page.type === "produkt" || !!adapter() || (page.products.length >= 4 && !page.isArticle);
   const isShop = () => page.type === "shop" || (page.type === "seite" && !!page.search && !!adapter());
 
   /* ---------- Grafiken ---------- */
@@ -351,7 +352,13 @@
 Mach Zahlen greifbar und runde sie so, dass es noch stimmt: „etwa 23 von 100 Menschen“ statt „22,6 Prozent“, „fast ein Viertel“, „gut 400 Milliarden Euro“. Sag nie „Prozentpunkte“.
 Sprich über das, was in der Welt passiert ist, nicht über die Darstellung. Benutze nie die Wörter Grafik, Diagramm, Balken, Spalte, Zeile, Achse, Legende, Tabelle, Daten oder Datensatz.
 Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
-  const needsLine = () => cfg.needs ? `Wünsche der Person, bitte berücksichtigen: """${cfg.needs.slice(0, 500)}"""` : "";
+  const needsLine = () => {
+    const a = [cfg.needs && `Immer: ${cfg.needs.slice(0, 500)}`, cfg.sessionNeeds && `Gerade jetzt: ${cfg.sessionNeeds.slice(0, 400)}`].filter(Boolean);
+    return a.length ? `Wünsche der Person, bitte berücksichtigen:\n"""${a.join("\n")}"""` : "";
+  };
+  const needList = t => String(t || "").split("\n").map(x => x.trim()).filter(Boolean);
+  async function loadSessionNeeds() { try { const r = await chrome.storage.session.get("sessionNeeds"); cfg.sessionNeeds = r.sessionNeeds || ""; } catch (e) { cfg.sessionNeeds = cfg.sessionNeeds || ""; } }
+  function saveSessionNeeds() { try { chrome.storage.session.set({ sessionNeeds: cfg.sessionNeeds }); } catch (e) {} }
 
   /* ---------- speech & sound ---------- */
   const canSpeak = "speechSynthesis" in window;
@@ -456,7 +463,10 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
   function tiles(mode) {
     if (mode === "fokus") {
       const t = [["noise", "Ablenkungen ausblenden"]];
-      if (page.type === "shop" || (page.type === "seite" && page.search)) t.push(["guide", "Auswahl verdichten"]);
+      if (isCommerce() || page.search) t.push(["guide", "Gezielt suchen"]);
+      if (page.type === "produkt") t.push(["productOnly", "Nur dieses Produkt zeigen"]);
+      if (isCommerce()) t.push(["buyPause", "Kaufpause"]);
+      t.push(["ruler", "Leselineal"]);
       return t;
     }
     if (mode === "einfach") {
@@ -465,7 +475,7 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
       return [["explainPage", "Seite einfach erklären"]];
     }
     if (mode === "snack") return [["snack", "Inhalte in Pakete zusammenfassen"]];
-    return [["calmPage", "Seite beruhigen"]];
+    return [["calmPage", "Seite beruhigen"], ["noPressure", "Druck rausnehmen"]];
   }
   const modeOn = m => tiles(m).some(([k]) => M[k]);
   const activeModes = () => availModes().filter(modeOn);
@@ -477,6 +487,10 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
     if (k === "calmPage") { setDocSheet("calm", on ? CALM_CSS : null); setDocSheet("noise", on || M.noise ? NOISE_CSS : null); if (on) hideOverlays(); else if (!M.noise) restoreOverlays(); }
     if (k === "sound") { if (on) { if (!soundOn()) M.sound = false; } else soundOff(); }
     if (k === "guide") { if (on) { G.step = "ask"; } else clearShape(); }
+    if (k === "productOnly") productOnly(on);
+    if (k === "buyPause") buyPause(on);
+    if (k === "ruler") ruler(on);
+    if (k === "noPressure") noPressure(on);
     if (k === "product" || k === "explainPage") { qa.length = 0; renderReader(); }
     if (k === "charts") { if (on) { prepareLazy().then(() => { attachInline(); if (inlineHosts.length) toast("Unter jeder Grafik steht jetzt „Grafik einfach erklärt“."); }); } else detachInline(); }
     if (["summary", "simplify", "structure", "snack"].includes(k)) {
@@ -497,7 +511,7 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
     stopSpeak();
     if (!view || ["fokus", "einfach", "snack", "calm"].includes(view)) analyse();
     const modes = availModes();
-    if (!view || (!modes.includes(view) && !["needs", "guide"].includes(view))) view = ui.view && modes.includes(ui.view) ? ui.view : (activeModes()[0] || (page.type === "shop" ? "fokus" : "einfach"));
+    if (!view || (!modes.includes(view) && !["needs", "guide"].includes(view))) view = ui.view && modes.includes(ui.view) ? ui.view : (activeModes()[0] || (isCommerce() ? "fokus" : "einfach"));
     if (!["needs", "guide"].includes(view)) ui.view = view;
     let inner;
     if (view === "needs") inner = needsHTML();
@@ -505,10 +519,11 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
     else {
       const info = INFO[view], on = modeOn(view), ts = tiles(view);
       const desc = view === "einfach" && page.type === "produkt" ? INFO.einfach_produkt : view === "einfach" && page.type !== "artikel" ? INFO.einfach_seite : info.desc;
-      const needsBar = `<button class="needsbar" data-act="needs">${ICON.wave.replace("<svg", '<svg class="ic"')}<span><b>${cfg.needs ? "Deine Bedürfnisse" : "Teile deine Bedürfnisse"}</b><small>${cfg.needs ? esc(cfg.needs.slice(0, 70)) + (cfg.needs.length > 70 ? " …" : "") : "Gilt für alle Modi und alle Websites"}</small></span><em>${cfg.needs ? "Ändern" : "Los"}</em></button>`;
+      const nA = needList(cfg.needs), nS = needList(cfg.sessionNeeds), any = nA.length + nS.length;
+      const needsBar = `<button class="needsbar${any ? " has" : ""}" data-act="needs">${ICON.wave.replace("<svg", '<svg class="ic"')}<span><b>${any ? "Deine Bedürfnisse" : "Teile deine Bedürfnisse"}</b><small>${any ? esc([...nA, ...nS].join(" · ").slice(0, 80)) : "Damit UMO weiß, was dir hilft. Gilt für alle Modi."}</small>${any ? `<span class="ncount">${nA.length ? `<i class="always">${nA.length} immer</i>` : ""}${nS.length ? `<i class="session">${nS.length} nur jetzt</i>` : ""}</span>` : ""}</span><em>${any ? "Ändern" : "Los"}</em></button>`;
       const fokusTile = view === "fokus" ? `<button class="tile${ts.length % 2 ? "" : " wide"}" data-act="focus-page">${ICON.compact.replace("<svg", '<svg class="ic"')}Kompakt zusammenfassen<small>Auf einer eigenen Seite</small></button>` : "";
       const keyNote = !hasKey() && view !== "calm" ? `<div class="keynote">Ohne API-Schlüssel zeigt UMO nur, was es ohne KI kann: Ablenkung ausblenden, Strukturieren, die wichtigsten Angaben der Seite und Calming. <button data-act="options">Schlüssel eintragen</button></div>` : "";
-      inner = `<p class="ptype">Passend für diese Seite: ${TYPE_LABEL[page.type]}</p><div class="mtabs" role="tablist" aria-label="Modi">${modes.map(m => `<button role="tab" data-act="tab" data-view="${m}" aria-selected="${m === view}">${modeOn(m) ? '<i class="on"></i>' : ""}${INFO[m].title.replace(" Modus", "")}</button>`).join("")}</div>${needsBar}
+      inner = `${needsBar}<p class="ptype">Passend für diese Seite: ${TYPE_LABEL[page.type]}</p><div class="mtabs" role="tablist" aria-label="Modi">${modes.map(m => `<button role="tab" data-act="tab" data-view="${m}" aria-selected="${m === view}">${modeOn(m) ? '<i class="on"></i>' : ""}${INFO[m].title.replace(" Modus", "")}</button>`).join("")}</div>
         <div class="mhead"><h2 id="umoT">${info.title}</h2><button class="status" data-act="all" data-view="${view}" aria-pressed="${on}" aria-label="${info.title} ${on ? "ausschalten" : "einschalten"}"><i></i>${on ? "An" : "Aus"}</button></div>
         <p class="mdesc">${desc}</p>${keyNote}
         <div class="tiles">
@@ -533,13 +548,15 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
 
   /* ---------- needs chat ---------- */
   function needsHTML() {
-    if (!ui.chat.length) {
-      ui.chat.push({ who: "bot", text: isShop() ? "Was ist der Grund, warum du diese Seite besuchst? Und was fällt dir hier schwer?" : "Teile deine Bedürfnisse, wie bspw. einfache und verständliche Sprache, keine Fremdwörter etc." });
-      if (cfg.needs) ui.chat.push({ who: "me", text: cfg.needs });
-    }
-    const chips = page.isArticle ? ["Kurze Sätze", "Keine Fremdwörter", "Grafiken verstehe ich nicht", "Bitte alles vorlesen"] : ["Zu viel Auswahl", "Mich lenkt alles ab", "Bitte alles vorlesen"];
+    if (!ui.chat.length) ui.chat.push({ who: "bot", text: isShop() ? "Was ist der Grund, warum du diese Seite besuchst? Und was fällt dir hier schwer?" : "Was hilft dir? Zum Beispiel: kurze Sätze, keine Fremdwörter, weniger Auswahl, alles vorlesen." });
+    ui.needScope = ui.needScope || "always";
+    const group = (scope, title, sub, txt) => { const l = needList(txt); return l.length ? `<div class="ngroup"><p class="nh"><b>${title}</b><span>${sub}</span></p>${l.map((t, i) => `<span class="nchip ${scope}">${esc(t)}<button data-act="need-del" data-scope="${scope}" data-i="${i}" aria-label="„${esc(t)}“ löschen">×</button></span>`).join("")}</div>` : ""; };
+    const saved = group("always", "Immer", "auf allen Websites", cfg.needs) + group("session", "Nur jetzt", "bis du Chrome schließt", cfg.sessionNeeds);
+    const chips = page.isArticle ? ["Kurze Sätze", "Keine Fremdwörter", "Grafiken verstehe ich nicht", "Bitte alles vorlesen"] : ["Zu viel Auswahl", "Mich lenkt alles ab", "Ich kaufe schnell zu viel", "Bitte alles vorlesen"];
     return `<div class="mhead"><h2 id="umoT">Deine Bedürfnisse</h2><button class="status" data-act="tab" data-view="${ui.view || ""}">Zurück</button></div>
-      <div class="chat" id="chatLog" aria-live="polite">${ui.chat.map(m => `<div class="bub ${m.who}">${esc(m.text)}${m.suggest ? `<br><button class="act" data-act="suggest" data-view="${m.suggest}">${INFO[m.suggest].title} einschalten</button>` : ""}</div>`).join("")}${cfg.needs ? `<button class="linkbtn" data-act="needs-clear">Meine Wünsche löschen</button>` : ""}</div>
+      ${saved ? `<div class="nsaved">${saved}</div>` : ""}
+      <div class="chat" id="chatLog" aria-live="polite">${ui.chat.map(m => `<div class="bub ${m.who}">${esc(m.text)}${m.suggest ? `<br><button class="act" data-act="suggest" data-view="${m.suggest}">${INFO[m.suggest].title} einschalten</button>` : ""}</div>`).join("")}</div>
+      <div class="nscope" role="radiogroup" aria-label="Wie lange soll das gelten?"><span>Gilt</span><button role="radio" data-act="scope" data-scope="always" aria-checked="${ui.needScope === "always"}">Immer</button><button role="radio" data-act="scope" data-scope="session" aria-checked="${ui.needScope === "session"}">Nur jetzt</button></div>
       <div class="chips">${chips.map(c => `<button data-act="chip">${c}</button>`).join("")}</div>
       ${ui.chatMode === "text" ? `<div class="row"><input id="chatIn" type="text" placeholder="Schreib, was dir hilft …" aria-label="Deine Bedürfnisse"><button class="round" data-act="chat-send" aria-label="Senden">${ICON.next}</button></div>` : ""}
       <div class="cbtns"><button class="round" data-act="chat-voice" aria-label="Sprechen">${ICON.wave}</button><button class="round dark" data-act="chat-text" aria-label="Tippen">${ICON.text}</button></div>`;
@@ -553,8 +570,8 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
   async function sendNeed(text) {
     text = clean(text); if (!text) return;
     ui.chat.push({ who: "me", text });
-    cfg.needs = (cfg.needs ? cfg.needs + "\n" : "") + text;
-    chrome.storage.local.set({ needs: cfg.needs });
+    if (ui.needScope === "session") { cfg.sessionNeeds = (cfg.sessionNeeds ? cfg.sessionNeeds + "\n" : "") + text; saveSessionNeeds(); }
+    else { cfg.needs = (cfg.needs ? cfg.needs + "\n" : "") + text; chrome.storage.local.set({ needs: cfg.needs }); }
     ui.chat.push({ who: "bot", text: "…" }); openSheet("needs");
     let reply = "Kein Problem. UMO passt die Inhalte für dich an. Komm immer wieder hierher zurück, wenn du etwas brauchst.", sug = suggestFor(text);
     if (hasKey()) {
@@ -1336,6 +1353,121 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
     if (cur) inner.style.transform = `translateY(${-Math.max(0, cur.offsetTop - 140)}px)`;
   }
 
+  /* ---------- Fokus: Nur dieses Produkt zeigen ----------
+     Blendet Empfehlungen, „Das könnte dir auch gefallen“, „Komplettiere deinen Look“
+     und Farbvarianten in anderen Farben aus. Alles lässt sich wieder einblenden. */
+  const RECO_RE = /ähnlich|könnte (dir|ihnen|euch) (auch )?gefallen|empfehl|andere (kund|käuf)|kunden (kauften|sahen|haben|interessierten)|komplettier|passend dazu|dazu passt|kombinier|zuletzt angesehen|inspiration|mehr von|mehr aus|weitere (artikel|produkte|modelle)|beliebt|bestseller|top[- ]?seller|you may also like|similar|recommend|complete the look|shop the look|frequently bought|entdecke|style it with|outfit/i;
+  const HIDE = "data-umo-hide";
+  function umoHide(el, why) { if (!el || el.hasAttribute(HIDE) || el.closest("umo-root")) return 0; el.setAttribute(HIDE, why); el.style.setProperty("display", "none", "important"); return 1; }
+  function umoUnhide(why) { document.querySelectorAll(`[${HIDE}="${why}"]`).forEach(el => { el.removeAttribute(HIDE); el.style.removeProperty("display"); }); }
+  function mainProductBox() {
+    const h1 = document.querySelector("h1");
+    const buy = [...document.querySelectorAll("button, [role=button], input[type=submit]")].find(b => !b.closest("umo-root") && /in den warenkorb|zum warenkorb|in die tasche|add to (cart|bag|basket)|jetzt kaufen/i.test(b.innerText || b.value || b.getAttribute("aria-label") || ""));
+    return [h1, buy].filter(Boolean);
+  }
+  function currentColor() {
+    const t = [document.title, (document.querySelector("h1") || {}).innerText, location.pathname, ...[...document.querySelectorAll('script[type="application/ld+json"]')].map(x => (x.textContent.match(/"color"\s*:\s*"([^"]+)"/) || [])[1])].join(" ").toLowerCase();
+    return COLORS.find(c => c[3].some(w => new RegExp(`(^|[^a-zäöü])${w}([^a-zäöü]|$)`).test(t))) || null;
+  }
+  function productOnly(on) {
+    if (!on) { umoUnhide("po"); return; }
+    const keep = mainProductBox();
+    const safe = el => !keep.some(k => el.contains(k));
+    let n = 0;
+    // 1. Bereiche mit Empfehlungs-Überschrift
+    document.querySelectorAll("h2, h3, h4, [role=heading], [aria-label]").forEach(h => {
+      if (h.closest("umo-root, [" + HIDE + "]")) return;
+      const t = (h.matches("[aria-label]") && !/^H\d$/.test(h.tagName) ? h.getAttribute("aria-label") : h.innerText || "").trim();
+      if (!t || t.length > 80 || !RECO_RE.test(t)) return;
+      let box = h; for (let i = 0; i < 8 && box.parentElement && box.parentElement !== document.body; i++) { const p = box.parentElement; if (!safe(p)) break; box = p; if (box.querySelectorAll("a[href] img, a[href] picture").length >= 2) break; }
+      if (safe(box)) n += umoHide(box, "po");
+    });
+    // 2. Gruppen von anderen Produkten (Karten mit Bild und Preis)
+    const cards = findProducts().filter(c => !c.el.closest("[" + HIDE + "]"));
+    const groups = new Set();
+    cards.forEach(c => { let g = c.el; for (let i = 0; i < 10 && g.parentElement && g.parentElement !== document.body; i++) { const p = g.parentElement; if (!safe(p)) break; g = p; if (cards.filter(x => g.contains(x.el)).length >= 3) break; } if (safe(g) && cards.filter(x => g.contains(x.el)).length >= 2) groups.add(g); });
+    [...groups].filter(g => ![...groups].some(o => o !== g && o.contains(g))).forEach(g => n += umoHide(g, "po"));
+    // 3. Farbvarianten in anderen Farben (Bild-Links ohne Preis nahe am Produkt)
+    const cc = currentColor();
+    if (cc) {
+      [...document.querySelectorAll("a[href] img, [role=radio] img, button img")].forEach(img => {
+        const a = img.closest("a, [role=radio], button"); if (!a || a.closest("umo-root, [" + HIDE + "]")) return;
+        const label = [img.alt, a.getAttribute("aria-label"), a.title].filter(Boolean).join(" ").toLowerCase();
+        const col = COLORS.find(c => c[3].some(w => label.includes(w)));
+        if (col && col !== cc && a.getBoundingClientRect().width < 160) n += umoHide(a.closest("li") || a, "po");
+      });
+    }
+    toast(n ? `Ich habe ${n} Bereich${n === 1 ? "" : "e"} mit anderen Produkten ausgeblendet.` : "Ich habe hier keine anderen Produkte gefunden.", 4000);
+  }
+
+  /* ---------- Fokus: Kaufpause ----------
+     Vor „Zur Kasse“, „Jetzt kaufen“, „Zahlungspflichtig bestellen“ ein ruhiger Moment. */
+  const BUY_RE = /zur kasse|jetzt kaufen|kaufen$|zahlungspflichtig|bestellung abschließen|jetzt bestellen|kostenpflichtig bestellen|checkout|buy now|place order/i;
+  let pauseOK = null;
+  function pauseGuard(e) {
+    const t = e.target.closest && e.target.closest("a, button, [role=button], input[type=submit]");
+    if (!t || t.closest("umo-root") || t === pauseOK) return;
+    if (!BUY_RE.test((t.innerText || t.value || t.getAttribute("aria-label") || "").trim())) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    openPause(t);
+  }
+  function buyPause(on) { document[on ? "addEventListener" : "removeEventListener"]("click", pauseGuard, true); }
+  function openPause(target) {
+    stopSpeak();
+    let left = 10;
+    $("#layer").innerHTML = `<div class="wrap layer"><div class="stack"><div class="sheet pause" role="dialog" aria-modal="true" aria-labelledby="pT">
+      <p class="ptype">Kaufpause</p><h2 id="pT">Einmal kurz durchatmen.</h2>
+      <p class="mdesc">Bevor du kaufst, frag dich in Ruhe:</p>
+      <ul class="pq"><li>Brauche ich das wirklich?</li><li>Passt es gerade in mein Budget?</li><li>Will ich es morgen auch noch?</li></ul>
+      <div class="pbtns"><button class="pgo" data-act="pause-go" disabled>Weiter in <span id="pLeft">${left}</span> s</button><button class="plater" data-act="pause-later">Lieber später</button></div>
+    </div></div></div>`;
+    pauseTarget = target;
+    clearInterval(pauseT);
+    pauseT = setInterval(() => { left--; const el = $("#pLeft"); if (!el) return clearInterval(pauseT); if (left <= 0) { clearInterval(pauseT); const g = $(".pgo"); g.disabled = false; g.textContent = "Ja, weiter zum Kauf"; } else el.textContent = left; }, 1000);
+    $(".plater").focus();
+  }
+  let pauseTarget = null, pauseT = 0;
+
+  /* ---------- Fokus: Leselineal ---------- */
+  function ruler(on) {
+    const ex = $("#ruler"); if (ex) ex.remove();
+    document.removeEventListener("mousemove", rulerMove, true);
+    if (!on) return;
+    $(".u").insertAdjacentHTML("beforeend", `<div id="ruler" aria-hidden="true"><i class="rt"></i><i class="rb"></i></div>`);
+    document.addEventListener("mousemove", rulerMove, true);
+    rulerMove({ clientY: innerHeight / 3 });
+  }
+  function rulerMove(e) {
+    const r = $("#ruler"); if (!r) return;
+    const h = 64, y = Math.max(0, e.clientY - h / 2);
+    r.querySelector(".rt").style.height = y + "px";
+    r.querySelector(".rb").style.top = (y + h) + "px";
+  }
+
+  /* ---------- Calming: Druck rausnehmen ----------
+     Countdowns, Knappheits- und Andere-schauen-auch-Hinweise ausblenden (auch später nachgeladene). */
+  const PRESSURE_RE = /nur noch \d+|nur \d+ (stück )?(verfügbar|übrig|auf lager|vorrätig)|wenige(r als \d+)? (verfügbar|auf lager|übrig)|fast ausverkauft|bald ausverkauft|knapp|endet in|endet heute|noch \d+ ?(std|stunden|min|minuten|tage)|\d+ (personen|leute|menschen|kund\w*|nutzer\w*) (sehen|schauen|haben|kauften|kaufen|interessier)|gerade (angesehen|gekauft)|letzte chance|nur heute|nur noch heute|angebot gilt nur|beeil|schnell sein|hurry|only \d+ left|selling fast|\d+ (people|others) (are )?(viewing|looking)|ends in|countdown/i;
+  let pressureObs = null;
+  function scanPressure(root) {
+    let n = 0;
+    const walker = document.createTreeWalker(root || document.body, NodeFilter.SHOW_TEXT);
+    const hits = [];
+    while (walker.nextNode()) { const t = walker.currentNode.nodeValue; if (t && t.length < 160 && PRESSURE_RE.test(t)) hits.push(walker.currentNode.parentElement); }
+    hits.forEach(el => { if (!el || el.closest("umo-root, h1, [" + HIDE + "]")) return; let box = el; while (box.parentElement && (box.parentElement.innerText || "").length < 140 && !/^(BODY|MAIN|ARTICLE)$/.test(box.parentElement.tagName)) box = box.parentElement; n += umoHide(box, "np"); });
+    // Countdown-Elemente
+    document.querySelectorAll("[class*=countdown i], [id*=countdown i], [class*=timer i][class*=deal i], [class*=urgency i], [class*=scarcity i]").forEach(el => { if (!el.closest("umo-root")) n += umoHide(el, "np"); });
+    return n;
+  }
+  function noPressure(on) {
+    if (pressureObs) { pressureObs.disconnect(); pressureObs = null; }
+    if (!on) { umoUnhide("np"); return; }
+    const n = scanPressure();
+    let pending = 0;
+    pressureObs = new MutationObserver(() => { if (pending) return; pending = setTimeout(() => { pending = 0; scanPressure(); }, 600); });
+    pressureObs.observe(document.body, { childList: true, subtree: true, characterData: true });
+    toast(n ? `Ich habe ${n} Hinweis${n === 1 ? "" : "e"} ausgeblendet, die Druck machen.` : "Hier habe ich gerade keinen Zeitdruck gefunden. Ich passe weiter auf.", 4000);
+  }
+
   /* ---------- Fokus: kompakte Zusammenfassung im Look der Website ----------
      Übernimmt Logo, Schriften, Farben und Titelbild der Seite. Kapitel mit fetten Zahlen
      und, wenn sinnvoll, einem einfachen Vergleich (nach dem Figma-Design „Deine Zusammenfassung“). */
@@ -1519,12 +1651,13 @@ Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung
      Ein Lichtkreis atmet mit: 4 Sekunden größer werden (einatmen), 6 Sekunden kleiner (ausatmen).
      Weiche Farbverläufe, keine springenden Zahlen. Bei „Bewegung reduzieren“ nur Text. */
   let breathT, breathRun = 0, blobRAF = 0;
-  // Flüssige Blase: Radius an 9 Punkten schwankt langsam (überlagerte Sinuswellen), weich verbunden
-  function blobPath(t, r, wob) {
-    const N = 9, pts = [];
+  // Wasserblase: Radius an 10 Punkten schwankt (überlagerte Wellen); beim Bewegen kräuselt sich die Oberfläche stärker
+  function blobPath(t, r, wob, ripple) {
+    const N = 10, pts = [];
     for (let i = 0; i < N; i++) {
       const a = i / N * Math.PI * 2;
-      const k = 1 + wob * (Math.sin(t * 0.0009 + i * 1.7) * 0.55 + Math.sin(t * 0.0013 + i * 2.9) * 0.3 + Math.sin(t * 0.0005 + i * 0.8) * 0.15);
+      const k = 1 + wob * (Math.sin(t * 0.0008 + i * 1.7) * 0.5 + Math.sin(t * 0.0012 + i * 2.9) * 0.3 + Math.sin(t * 0.0005 + i * 0.8) * 0.2)
+        + ripple * Math.sin(t * 0.006 + i * 3.3);
       pts.push([100 + Math.cos(a) * r * k, 100 + Math.sin(a) * r * k]);
     }
     let d = "";
@@ -1540,21 +1673,35 @@ Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung
     stopSpeak(); if (!M.calmPage) setMode("calmPage", true);
     const my = ++breathRun, still = matchMedia("(prefers-reduced-motion: reduce)").matches;
     $("#layer").innerHTML = `<div class="calmwrap" role="dialog" aria-modal="true" aria-labelledby="calmT">
-      <div class="sky" aria-hidden="true"><i class="au a1"></i><i class="au a2"></i><i class="au a3"></i><i class="au a4"></i>${Array.from({ length: 14 }, (_, i) => `<b class="mote" style="left:${(i * 71) % 100}%;animation-delay:-${(i * 3.7) % 26}s;animation-duration:${22 + (i * 5) % 14}s"></b>`).join("")}</div>
+      <div class="sea" aria-hidden="true"><i class="surf"></i><i class="ray r1"></i><i class="ray r2"></i><i class="ray r3"></i><i class="ray r4"></i><i class="deep"></i>${Array.from({ length: 16 }, (_, i) => `<b class="bub" style="left:${(i * 61 + 7) % 100}%;width:${4 + (i * 7) % 9}px;height:${4 + (i * 7) % 9}px;animation-delay:-${(i * 2.9) % 20}s;animation-duration:${14 + (i * 5) % 12}s"></b>`).join("")}</div>
       <button class="close" data-act="close">Schließen</button>
       <div class="calmcard" id="calmCard"><h2 id="calmT">Atemübung</h2>
-        <p class="instr" id="instr" aria-live="polite">Mach es dir bequem. Atme mit der Blase.</p>
+        <p class="instr" id="instr" aria-live="polite">Mach es dir bequem. Atme mit dem Wasser.</p>
         <div class="orbwrap" aria-hidden="true">
           <svg class="bubble" id="bubble" viewBox="0 0 200 200">
             <defs>
-              <radialGradient id="bg1" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="#FFF6FB"/><stop offset=".35" stop-color="#F3C9FF"/><stop offset=".7" stop-color="#C08BFF"/><stop offset="1" stop-color="#8E5BEA"/></radialGradient>
-              <linearGradient id="bg2" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#FFB38F" stop-opacity=".55"/><stop offset="1" stop-color="#FF8FC7" stop-opacity="0"/></linearGradient>
-              <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"/></filter>
+              <radialGradient id="wBody" cx="46%" cy="42%" r="60%"><stop offset="0" stop-color="#F2FEFF" stop-opacity=".26"/><stop offset=".55" stop-color="#B6F1F8" stop-opacity=".32"/><stop offset=".84" stop-color="#6BD5E8" stop-opacity=".6"/><stop offset="1" stop-color="#3AA8D2" stop-opacity=".92"/></radialGradient>
+              <radialGradient id="wDeep" cx="60%" cy="78%" r="55%"><stop offset="0" stop-color="#8C7BFF" stop-opacity=".45"/><stop offset="1" stop-color="#8C7BFF" stop-opacity="0"/></radialGradient>
+              <radialGradient id="wSpec" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+              <linearGradient id="wRim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset=".45" stop-color="#DFFBFF" stop-opacity=".25"/><stop offset="1" stop-color="#9FE8FF" stop-opacity=".7"/></linearGradient>
+              <filter id="wCaus" x="0" y="0" width="100%" height="100%">
+                <feTurbulence type="fractalNoise" baseFrequency="0.022 0.03" numOctaves="2" seed="4" result="n">${still ? "" : '<animate attributeName="baseFrequency" dur="22s" values="0.022 0.03;0.028 0.022;0.02 0.027;0.022 0.03" repeatCount="indefinite"/><animate attributeName="seed" dur="40s" values="4;9;4" repeatCount="indefinite"/>'}</feTurbulence>
+                <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 -11 6.2" result="lines"/>
+                <feGaussianBlur stdDeviation=".45"/>
+              </filter>
+              <filter id="wBlur" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="10"/></filter>
+              <filter id="wSoft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2.2"/></filter>
+              <clipPath id="wClip"><path id="wClipP"/></clipPath>
             </defs>
-            <path id="bGlow" fill="#C47BFF" opacity=".55" filter="url(#soft)"/>
-            <path id="bBody" fill="url(#bg1)"/>
-            <path id="bTint" fill="url(#bg2)"/>
-            <ellipse id="bShine" cx="78" cy="70" rx="20" ry="11" fill="#fff" opacity=".5"/>
+            <path id="wGlow" fill="#4FD3E8" opacity=".38" filter="url(#wBlur)"/>
+            <path id="wBodyP" fill="url(#wBody)"/>
+            <path id="wDeepP" fill="url(#wDeep)"/>
+            <rect x="0" y="0" width="200" height="200" filter="url(#wCaus)" clip-path="url(#wClip)" opacity=".24"/>
+            <path id="wInner" fill="none" stroke="#fff" stroke-opacity=".14" stroke-width="5" filter="url(#wSoft)"/>
+            <path id="wRimP" fill="none" stroke="url(#wRim)" stroke-width="2.2"/>
+            <ellipse id="wSpec1" fill="url(#wSpec)" opacity=".85"/>
+            <circle id="wSpec2" r="2.6" fill="#fff" opacity=".9"/>
+            <ellipse id="wRefl" fill="#E9FDFF" opacity=".28" filter="url(#wSoft)"/>
           </svg>
           <span class="phase" id="phase"></span>
         </div>
@@ -1562,35 +1709,43 @@ Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung
         <div class="calmacts"><button class="sound" data-act="sound" aria-pressed="${M.sound}">${ICON.phones}<span>Ruhige Klänge</span></button></div>
       </div></div>`;
     const card = $("#calmCard"), instr = $("#instr"), phase = $("#phase"), rounds = $("#rounds");
-    const glow = $("#bGlow"), body = $("#bBody"), tint = $("#bTint"), shine = $("#bShine");
-    // Größe folgt dem Atem (weich interpoliert), die Form fließt ständig
-    let size = 0.62, target = 0.62, rate = 0.0006, last = performance.now();
+    const el = id => shadow.getElementById(id);
+    const P = { glow: el("wGlow"), body: el("wBodyP"), deep: el("wDeepP"), clip: el("wClipP"), inner: el("wInner"), rim: el("wRimP"), s1: el("wSpec1"), s2: el("wSpec2"), refl: el("wRefl") };
+    // Weich gleitendes Atem-Ziel + Feder: die Blase folgt langsam und schwingt am Ende sanft nach
+    let size = 0.62, vel = 0, from = 0.62, to = 0.62, t0 = performance.now(), dur = 1, last = performance.now();
+    const ease = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+    const setTarget = (v, sec) => { from = from + (to - from) * ease(Math.min(1, (performance.now() - t0) / (dur * 1000))); to = v; t0 = performance.now(); dur = sec; };
     cancelAnimationFrame(blobRAF);
     const frame = now => {
       if (my !== breathRun || !$("#bubble")) return;
-      const dt = Math.min(64, now - last); last = now;
-      size += (target - size) * (1 - Math.exp(-dt * rate));
-      const r = 74 * size, w = still ? 0 : 0.06 + (1 - size) * 0.05;
-      const sx = 100 - r * 0.38 + Math.sin(now * 0.0007) * r * 0.03, sy = 100 - r * 0.46;
-      shine.setAttribute("cx", sx.toFixed(1)); shine.setAttribute("cy", sy.toFixed(1)); shine.setAttribute("rx", (r * 0.26).toFixed(1)); shine.setAttribute("ry", (r * 0.13).toFixed(1));
-      shine.setAttribute("transform", `rotate(-30 ${sx.toFixed(1)} ${sy.toFixed(1)})`);
-      body.setAttribute("d", blobPath(now, r, w)); tint.setAttribute("d", blobPath(now + 4000, r * 0.98, w * 1.2)); glow.setAttribute("d", blobPath(now + 9000, r * 1.08, w));
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      const goal = from + (to - from) * ease(Math.min(1, (now - t0) / (dur * 1000)));
+      vel += (14 * (goal - size) - 3.2 * vel) * dt; size += vel * dt;
+      const r = 76 * size, wob = still ? 0 : 0.035 + (1 - size) * 0.03, rip = still ? 0 : Math.min(0.03, Math.abs(vel) * 0.06);
+      const d = blobPath(now, r, wob, rip);
+      P.body.setAttribute("d", d); P.deep.setAttribute("d", d); P.clip.setAttribute("d", d); P.rim.setAttribute("d", d);
+      P.glow.setAttribute("d", blobPath(now + 7000, r * 1.06, wob, 0)); P.inner.setAttribute("d", blobPath(now, r * 0.94, wob, rip));
+      const sx = 100 - r * 0.42, sy = 100 - r * 0.48;
+      P.s1.setAttribute("cx", sx.toFixed(1)); P.s1.setAttribute("cy", sy.toFixed(1)); P.s1.setAttribute("rx", (r * 0.3).toFixed(1)); P.s1.setAttribute("ry", (r * 0.15).toFixed(1)); P.s1.setAttribute("transform", `rotate(-35 ${sx.toFixed(1)} ${sy.toFixed(1)})`);
+      P.s2.setAttribute("cx", (100 - r * 0.18).toFixed(1)); P.s2.setAttribute("cy", (100 - r * 0.6).toFixed(1));
+      const rx = 100 + r * 0.32, ry = 100 + r * 0.62;
+      P.refl.setAttribute("cx", rx.toFixed(1)); P.refl.setAttribute("cy", ry.toFixed(1)); P.refl.setAttribute("rx", (r * 0.34).toFixed(1)); P.refl.setAttribute("ry", (r * 0.09).toFixed(1)); P.refl.setAttribute("transform", `rotate(-20 ${rx.toFixed(1)} ${ry.toFixed(1)})`);
       blobRAF = requestAnimationFrame(frame);
     };
     blobRAF = requestAnimationFrame(frame);
     const ROUNDS = 4;
-    const swell = (to, sec) => { if (audio) { try { const g = audio.master.gain, t = audio.ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(to, t + sec); } catch (e) {} } };
-    const setText = (el, t) => { el.classList.add("fade"); setTimeout(() => { el.textContent = t; el.classList.remove("fade"); }, 350); };
+    const swell = (v, sec) => { if (audio) { try { const g = audio.master.gain, t = audio.ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(v, t + sec); } catch (e) {} } };
+    const setText = (el2, t) => { el2.classList.add("fade"); setTimeout(() => { el2.textContent = t; el2.classList.remove("fade"); }, 350); };
     const step = (round, inhale) => {
       if (my !== breathRun || !$("#bubble")) return;
       if (round >= ROUNDS) {
-        card.className = "calmcard done"; target = 0.7; rate = 0.0004; setText(phase, ""); setText(instr, "Gut gemacht. Lass dir Zeit, bevor du weiterliest.");
+        card.className = "calmcard done"; setTarget(0.72, 3); setText(phase, ""); setText(instr, "Gut gemacht. Lass dir Zeit, bevor du weiterliest.");
         swell(0.6, 4); return;
       }
       card.className = "calmcard " + (inhale ? "inhale" : "exhale");
-      target = inhale ? 1 : 0.62; rate = inhale ? 0.0011 : 0.0007;
+      setTarget(inhale ? 1 : 0.62, inhale ? 4 : 6);
       setText(phase, inhale ? "Einatmen" : "Ausatmen");
-      if (round === 0 && inhale) setText(instr, "Atme langsam durch die Nase ein, während die Blase wächst.");
+      if (round === 0 && inhale) setText(instr, "Atme langsam durch die Nase ein, während das Wasser wächst.");
       if (round === 0 && !inhale) setText(instr, "Und ganz langsam wieder aus.");
       if (round === 1 && inhale) setText(instr, "Gut so. Ganz in deinem Tempo.");
       [...rounds.children].forEach((d, i) => d.classList.toggle("on", i <= round));
@@ -1614,9 +1769,15 @@ Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung
       case "open": openSheet(b.dataset.view); break;
       case "options": send({ type: "umo-options" }); break;
       case "needs": openSheet("needs"); break;
+      case "scope": ui.needScope = b.dataset.scope; openSheet("needs"); break;
+      case "need-del": {
+        const k = b.dataset.scope === "session" ? "sessionNeeds" : "needs", l = needList(cfg[k]); l.splice(+b.dataset.i, 1); cfg[k] = l.join("\n");
+        if (k === "needs") chrome.storage.local.set({ needs: cfg.needs }); else saveSessionNeeds();
+        summaryCache = null; fpCache = null; openSheet("needs"); break;
+      }
       case "all": {
         const v = b.dataset.view, on = !modeOn(v);
-        tiles(v).forEach(([k]) => { if (k === "guide" || k === "charts") { if (!on) setMode(k, false); } else setMode(k, on); });
+        tiles(v).forEach(([k]) => { if (["guide", "charts", "productOnly", "buyPause", "ruler"].includes(k)) { if (!on) setMode(k, false); } else setMode(k, on); });
         if (on && (v === "einfach" || v === "snack")) { closeLayer(); break; }
         openSheet(v); break;
       }
@@ -1630,11 +1791,13 @@ Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung
       case "suggest": {
         const v = b.dataset.view;
         if (v === "calm") { openBreath(); break; }
-        tiles(v).forEach(([k]) => { if (k !== "guide" && k !== "sound" && k !== "structure" && k !== "charts") setMode(k, true); });
+        tiles(v).forEach(([k]) => { if (!["guide", "sound", "structure", "charts", "productOnly", "buyPause", "ruler"].includes(k)) setMode(k, true); });
         closeLayer(); toast(INFO[v].title + " ist an."); break;
       }
       case "breath": openBreath(); break;
       case "focus-page": openFocusPage(); break;
+      case "pause-later": clearInterval(pauseT); closeLayer(); toast("Gute Entscheidung. Dein Warenkorb bleibt, wie er ist.", 4000); break;
+      case "pause-go": { clearInterval(pauseT); closeLayer(); const t = pauseTarget; pauseOK = t; if (t) t.click(); setTimeout(() => pauseOK = null, 1000); break; }
       case "fp-cta": focusCta(); break;
       case "fg-open": fgShow(+b.dataset.i); break;
       case "fg-next": fgShow(fgI + 1); break;
@@ -1705,6 +1868,7 @@ Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung
     const s = await chrome.storage.local.get(["apiKey", "needs", "hiddenSites", "showLauncher", "elevenKey", "voiceEngine", "voiceName", "voiceRate"]);
     Object.assign(cfg, { apiKey: s.apiKey || "", needs: s.needs || "", hiddenSites: s.hiddenSites || [], showLauncher: s.showLauncher !== false, elevenKey: s.elevenKey || "",
       voiceEngine: s.voiceEngine || "system", voiceName: s.voiceName || "", voiceRate: s.voiceRate || 0.9 });
+    await loadSessionNeeds();
     ui.visible = cfg.showLauncher && !cfg.hiddenSites.includes(HOST);
     try {
       const css = await (await fetch(chrome.runtime.getURL("content/umo.css"))).text();
@@ -1732,6 +1896,7 @@ Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung
       if (ch.apiKey) cfg.apiKey = ch.apiKey.newValue || "";
       if (ch.elevenKey) cfg.elevenKey = ch.elevenKey.newValue || "";
       for (const k of ["voiceEngine", "voiceName", "voiceRate"]) if (ch[k]) cfg[k] = ch[k].newValue;
+      if (ch.sessionNeeds) cfg.sessionNeeds = ch.sessionNeeds.newValue || "";
       if (ch.needs) cfg.needs = ch.needs.newValue || "";
       if (ch.showLauncher) { cfg.showLauncher = ch.showLauncher.newValue !== false; ui.visible = cfg.showLauncher && !cfg.hiddenSites.includes(HOST); renderLauncher(); }
     });

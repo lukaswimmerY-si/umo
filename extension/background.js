@@ -123,6 +123,9 @@ async function callClaude({ prompt, image, maxTokens }) {
   throw lastErr;
 }
 
+// Sitzungs-Bedürfnisse: chrome.storage.session gilt bis Chrome geschlossen wird; Content Scripts dürfen mitlesen
+try { chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" }); } catch (e) {}
+
 /* ElevenLabs-Stimme (Standard: Amy). Audio läuft in einem Offscreen-Dokument der Extension. */
 const ttsCache = new Map();
 async function elevenAudio(text) {
