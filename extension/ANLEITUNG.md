@@ -1,4 +1,4 @@
-# UMO – Chrome-Extension (Prototyp 0.7.3)
+# UMO – Chrome-Extension (Prototyp 0.8)
 
 UMO legt das Modus-System aus dem Y-si-Prototyp über echte Websites:
 Fokus, Einfach, Snack und Calming, dazu „Teile deine Bedürfnisse“.
@@ -37,6 +37,12 @@ Ohne Schlüssel funktionieren: Ablenkendes ausblenden, Inhalte strukturieren, Sn
 | Jede Seite | Calming | Seite beruhigen, ruhige Klänge, Atemübung |
 
 Das UMO-Symbol in der Browserleiste blendet den Modus-Knopf ein und aus.
+
+## Neu in 0.8
+
+- **Bedürfnisse für alles.** „Teile deine Bedürfnisse“ steht jetzt als feste Leiste über allen Modi. Was du dort sagst, gilt für alle Modi und alle Websites.
+- **Fokus: Kompakt zusammenfassen.** Im Fokus Modus gibt es immer die Kachel „Kompakt zusammenfassen“. Sie öffnet eine eigene Seite im Look der Website: Logo, Schriften, Farben und Titelbild bleiben erhalten. Darauf: „Deine Zusammenfassung“, 2 bis 4 nummerierte Kapitel, wichtige Zahlen groß und fett, und wo es passt ein einfacher Vergleich als Balken. Auf Produkt- und Service-Seiten führt „Nächster Schritt“ direkt zur Hauptaktion der Seite.
+- **Atemübung.** Eine fließende Blase, die mit dem Atem wächst und kleiner wird. Dahinter ein ruhiger Abendhimmel mit langsam treibenden Farben und schwebenden Lichtpunkten. Bei „Bewegung reduzieren“ bleibt alles still.
 
 ## Neu in 0.7.3: Einfache Sprache und Leichte Sprache nach Norm
 

@@ -504,14 +504,15 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
     else {
       const info = INFO[view], on = modeOn(view), ts = tiles(view);
       const desc = view === "einfach" && page.type === "produkt" ? INFO.einfach_produkt : view === "einfach" && page.type !== "artikel" ? INFO.einfach_seite : info.desc;
-      const needsTile = `<button class="tile ${ts.length % 2 === 1 ? "" : "wide"}" data-act="needs">${ICON.wave.replace("<svg", '<svg class="ic"')}Teile deine Bedürfnisse${cfg.needs ? "<small>Gespeichert</small>" : ""}</button>`;
+      const needsBar = `<button class="needsbar" data-act="needs">${ICON.wave.replace("<svg", '<svg class="ic"')}<span><b>${cfg.needs ? "Deine Bedürfnisse" : "Teile deine Bedürfnisse"}</b><small>${cfg.needs ? esc(cfg.needs.slice(0, 70)) + (cfg.needs.length > 70 ? " …" : "") : "Gilt für alle Modi und alle Websites"}</small></span><em>${cfg.needs ? "Ändern" : "Los"}</em></button>`;
+      const fokusTile = view === "fokus" ? `<button class="tile${ts.length % 2 ? "" : " wide"}" data-act="focus-page">${ICON.wave.replace("<svg", '<svg class="ic"')}Kompakt zusammenfassen<small>Auf einer eigenen Seite</small></button>` : "";
       const keyNote = !hasKey() && view !== "calm" ? `<div class="keynote">Ohne API-Schlüssel zeigt UMO nur, was es ohne KI kann: Ablenkung ausblenden, Strukturieren, die wichtigsten Angaben der Seite und Calming. <button data-act="options">Schlüssel eintragen</button></div>` : "";
-      inner = `<p class="ptype">Passend für diese Seite: ${TYPE_LABEL[page.type]}</p><div class="mtabs" role="tablist" aria-label="Modi">${modes.map(m => `<button role="tab" data-act="tab" data-view="${m}" aria-selected="${m === view}">${modeOn(m) ? '<i class="on"></i>' : ""}${INFO[m].title.replace(" Modus", "")}</button>`).join("")}</div>
+      inner = `<p class="ptype">Passend für diese Seite: ${TYPE_LABEL[page.type]}</p><div class="mtabs" role="tablist" aria-label="Modi">${modes.map(m => `<button role="tab" data-act="tab" data-view="${m}" aria-selected="${m === view}">${modeOn(m) ? '<i class="on"></i>' : ""}${INFO[m].title.replace(" Modus", "")}</button>`).join("")}</div>${needsBar}
         <div class="mhead"><h2 id="umoT">${info.title}</h2><button class="status" data-act="all" data-view="${view}" aria-pressed="${on}" aria-label="${info.title} ${on ? "ausschalten" : "einschalten"}"><i></i>${on ? "An" : "Aus"}</button></div>
         <p class="mdesc">${desc}</p>${keyNote}
         <div class="tiles">
           ${ts.map(([k, label]) => `<button class="tile" data-act="sub" data-k="${k}" aria-pressed="${M[k]}"><span class="tg" aria-hidden="true"><i></i></span>${label}</button>`).join("")}
-          ${view === "calm" ? `<button class="tile${ts.length % 2 ? "" : " wide"}" data-act="breath">${ICON.breath.replace("<svg", '<svg class="ic"')}Atemübung starten<small>4 Sekunden ein, 6 Sekunden aus</small></button>` : needsTile}
+          ${view === "calm" ? `<button class="tile${ts.length % 2 ? "" : " wide"}" data-act="breath">${ICON.breath.replace("<svg", '<svg class="ic"')}Atemübung starten<small>4 Sekunden ein, 6 Sekunden aus</small></button>` : fokusTile}
         </div>
         <div class="foot"><span>Deine Wünsche bleiben auf diesem Gerät.</span><button data-act="diag">Was erkennt UMO hier?</button><button data-act="hide-site">Auf ${esc(HOST)} ausblenden</button></div>`;
     }
@@ -527,7 +528,7 @@ Nicht belehren. Keine Wertung von Parteien oder Personen. Keine Vorhersagen.`;
     const rows = [["Seitentyp", TYPE_LABEL[page.type]], ["Produkte erkannt", page.products.length], ["Suchfeld", page.search ? "ja" : "nein"], ["Shop-Anpassung", adapter() ? adapter().name : "keine (allgemein)"], ["Grafiken", page.graphics.length || "noch nicht geprüft"], ["KI-Schlüssel", hasKey() ? "ja" : "nein"]];
     return `<div class="keynote diag" style="margin-top:12px">${rows.map(r => `<div><b>${r[0]}:</b> ${esc(r[1])}</div>`).join("")}<div style="margin-top:6px;opacity:.7">${esc(location.hostname)}</div></div>`;
   }
-  function closeLayer() { $("#layer").innerHTML = ""; clearTimeout(breathT); breathRun++; if (M.sound) setMode("sound", false); }
+  function closeLayer() { $("#layer").innerHTML = ""; clearTimeout(breathT); breathRun++; cancelAnimationFrame(blobRAF); if (M.sound) setMode("sound", false); }
 
   /* ---------- needs chat ---------- */
   function needsHTML() {
@@ -1334,33 +1335,211 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
     if (cur) inner.style.transform = `translateY(${-Math.max(0, cur.offsetTop - 140)}px)`;
   }
 
+  /* ---------- Fokus: kompakte Zusammenfassung im Look der Website ----------
+     Übernimmt Logo, Schriften, Farben und Titelbild der Seite. Kapitel mit fetten Zahlen
+     und, wenn sinnvoll, einem einfachen Vergleich (nach dem Figma-Design „Deine Zusammenfassung“). */
+  let fpCache = null;
+  const rgbOf = c => { const m = String(c).match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/); return m && (m[4] === undefined || +m[4] > 0.5) ? [+m[1], +m[2], +m[3]] : null; };
+  const lum = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const sat = ([r, g, b]) => { const mx = Math.max(r, g, b), mn = Math.min(r, g, b); return mx ? (mx - mn) / mx : 0; };
+  const css = ([r, g, b]) => `rgb(${r},${g},${b})`;
+  function brand() {
+    const cs = el => getComputedStyle(el);
+    let bg = null;
+    for (const el of [document.body, document.documentElement, document.querySelector("main"), document.querySelector("#__next, #app, #root")]) { if (el && (bg = rgbOf(cs(el).backgroundColor))) break; }
+    bg = bg || [255, 255, 255];
+    const dark = lum(bg) < 0.45;
+    const h1 = document.querySelector("h1") || document.body, para = document.querySelector("article p, main p, p") || document.body;
+    // Akzentfarbe: theme-color, sonst die häufigste kräftige Farbe von Knöpfen und Links
+    let accent = null;
+    const tc = document.querySelector('meta[name="theme-color"]');
+    if (tc) { const d = document.createElement("div"); d.style.color = tc.content; document.body.appendChild(d); const c = rgbOf(cs(d).color); d.remove(); if (c && sat(c) > 0.3) accent = c; }
+    if (!accent) {
+      const count = new Map();
+      [...document.querySelectorAll("button, a, [class*=btn], [class*=button], header, nav")].slice(0, 400).forEach(el => {
+        if (el.closest("umo-root,umo-inline")) return;
+        const st = cs(el);
+        for (const c of [rgbOf(st.backgroundColor), el.tagName === "A" ? rgbOf(st.color) : null]) {
+          if (!c || sat(c) < 0.35 || lum(c) < 0.08 || lum(c) > 0.92) continue;
+          const k = c.join(","); count.set(k, (count.get(k) || 0) + 1);
+        }
+      });
+      const best = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
+      if (best) accent = best[0].split(",").map(Number);
+    }
+    accent = accent || [255, 84, 27];
+    // Logo
+    let logo = "";
+    const cand = [...document.querySelectorAll('header img, header svg, [class*=logo] img, [class*=logo] svg, img[alt*=logo i], a[href="/"] img, a[href="/"] svg')]
+      .filter(el => !el.closest("umo-root") && el.getBoundingClientRect().width > 20 && el.getBoundingClientRect().width < 360 && el.getBoundingClientRect().height < 140);
+    const lg = cand[0];
+    if (lg && lg.tagName === "IMG" && (lg.currentSrc || lg.src)) logo = `<img src="${esc(lg.currentSrc || lg.src)}" alt="">`;
+    else if (lg && lg.tagName.toLowerCase() === "svg") { const c = lg.cloneNode(true); c.querySelectorAll("script, foreignObject").forEach(x => x.remove()); c.removeAttribute("class"); c.setAttribute("height", "28"); c.style.width = "auto"; c.style.color = dark ? "#fff" : "#000"; logo = c.outerHTML; }
+    const site = (document.querySelector('meta[property="og:site_name"]') || {}).content || HOST.replace(/^www\./, "");
+    let hero = (document.querySelector('meta[property="og:image"]') || {}).content || "";
+    if (!hero) { const im = [...document.querySelectorAll("main img, article img, img")].find(i => !i.closest("umo-root") && i.naturalWidth >= 500); if (im) hero = im.currentSrc || im.src; }
+    const fg = dark ? [255, 255, 255] : [17, 17, 17];
+    const surf = bg.map((v, i) => Math.round(v * 0.9 + fg[i] * 0.1));
+    return { bg: css(bg), fg: css(fg), surf: css(surf), accent: css(accent), onAccent: lum(accent) > 0.6 ? "#111" : "#fff", dark,
+      head: cs(h1).fontFamily, body: cs(para).fontFamily, logo, site, hero };
+  }
+  function pageImages() {
+    return [...document.querySelectorAll("main img, [class*=gallery] img, [class*=product] img, img")]
+      .filter(i => !i.closest("umo-root,umo-inline,header,footer,nav") && i.naturalWidth >= 400 && i.getBoundingClientRect().width >= 200)
+      .map(i => i.currentSrc || i.src).filter((v, i, a) => v && a.indexOf(v) === i).slice(0, 4);
+  }
+  function mainAction() {
+    return [...document.querySelectorAll("a, button, [role=button], input[type=submit]")].find(b => !b.closest("umo-root") && b.getBoundingClientRect().width > 0 &&
+      /in den warenkorb|zum warenkorb|in die tasche|add to (cart|bag|basket)|jetzt kaufen|kaufen|bestellen|probefahrt|termin|anmelden|registrieren|kontakt|beantragen|buchen/i.test(b.innerText || b.value || b.getAttribute("aria-label") || ""));
+  }
+  function focusSourceText() {
+    if (page.type === "artikel") { const a = getArticle(); if (a) return { title: a.title, text: textBlocks().map(b => (b.type === "h" ? "## " : "") + b.text).join("\n") }; }
+    const main = document.querySelector("main, [role=main], article") || document.body;
+    const clone = main.cloneNode(true); clone.querySelectorAll("script,style,nav,footer,umo-root,umo-inline,iframe,noscript").forEach(x => x.remove());
+    return { title: (document.querySelector("h1") || {}).innerText || document.title, text: (clone.innerText || "").replace(/\n{3,}/g, "\n\n") };
+  }
+  async function openFocusPage() {
+    closeLayer(); stopSpeak();
+    const b = brand(), src = focusSourceText(), act = mainAction(), imgs = page.type === "produkt" ? pageImages() : [];
+    const st = `--fb:${b.bg};--ff:${b.fg};--fs:${b.surf};--fa:${b.accent};--fon:${b.onAccent};--fh:${b.head};--fbody:${b.body}`;
+    const shell = inner => `<div class="fpage${b.dark ? " fdark" : ""}" style="${esc(st)}" role="dialog" aria-modal="true" aria-label="Deine Zusammenfassung">
+      <header class="fbar"><span class="flogo">${b.logo || `<b>${esc(b.site)}</b>`}</span><button class="fclose" data-act="close">Zur Seite</button></header>
+      <div class="fscroll">${inner}</div></div>`;
+    const heroHTML = (title, lead) => `<section class="fhero"${b.hero ? ` style="background-image:linear-gradient(180deg,rgba(0,0,0,0) 30%,rgba(0,0,0,.75)),url('${esc(b.hero)}')"` : ""}>
+      <span class="fpill"><i></i>Deine Zusammenfassung</span><h1>${esc(title)}</h1>${lead ? `<p>${esc(lead)}</p>` : ""}</section>`;
+    $("#layer").innerHTML = shell(heroHTML(src.title, "") + `<div class="fload"><span class="dots"><i></i><i></i><i></i></span> Ich fasse die Seite für dich zusammen …</div>`);
+    $(".fclose").focus();
+    let d = fpCache && fpCache.href === location.href && fpCache.needs === cfg.needs ? fpCache.d : null;
+    if (!d && hasKey()) {
+      try {
+        d = await ask(`Du bist UMO. Mach aus dieser Seite (${TYPE_LABEL[page.type]} auf ${HOST}) eine kompakte Zusammenfassung für Menschen, die sich schwer lange konzentrieren können, zum Beispiel mit ADHS.
+${RULES_EINFACH}
+Aufbau: 2 bis 4 Kapitel. Das Wichtigste zuerst. Jedes Kapitel hat einen kurzen Titel mit 1 bis 3 Wörtern und einem Punkt am Ende, zum Beispiel „Das Wichtigste.“ oder „Technische Details.“. Jedes Kapitel hat genau eine Form:
+- "punkte": 2 bis 4 kurze Sätze.
+- "zahlen": 2 bis 5 wichtige Zahlen genau aus dem Text. wert ist kurz und mit Einheit, zum Beispiel „184 PS“ oder „22,6 %“. label sagt in 1 bis 3 Wörtern, was es ist.
+- "vergleich": nur wenn der Text 3 bis 6 gleichartige Zahlen mit derselben Einheit nennt, die man gut vergleichen kann. zahl ist eine reine Zahl, anzeige ist die Zahl mit Einheit.
+Nimm nur Zahlen, die wirklich im Text stehen. Erfinde nichts. Bewerte nichts. Keine Zahlen ohne Bedeutung, zum Beispiel keine Telefonnummern oder Artikelnummern.
+naechster: Nur bei Produkt, Shop oder Website: was man als Nächstes tun kann, in 2 bis 5 Wörtern, zum Beispiel „Probefahrt vereinbaren“. Bei Artikeln leer.
+${needsLine()}
+Titel: """${src.title}"""
+Text:
+"""${src.text.slice(0, 14000)}"""
+Antworte nur mit JSON: {"titel":"kurzer Titel, höchstens 8 Wörter","einleitung":"ein Satz","kapitel":[{"titel":"...","form":"punkte","punkte":["..."]},{"titel":"...","form":"zahlen","zahlen":[{"wert":"...","label":"..."}]},{"titel":"...","form":"vergleich","vergleich":{"einheit":"...","items":[{"label":"...","zahl":0,"anzeige":"..."}]}}],"naechster":""}`, { maxTokens: 1800 });
+        fpCache = { href: location.href, needs: cfg.needs, d };
+      } catch (e) { if ($(".fpage")) $(".fload").outerHTML = `<p class="cerr fpad">${errText(e, "focus-page")}</p>`; return; }
+    }
+    if (!$(".fpage")) return;
+    if (!d) {
+      // Ohne KI: Überschriften und Beschreibung der Seite
+      const desc = (document.querySelector('meta[name="description"]') || {}).content || "";
+      const hs = [...document.querySelectorAll("main h2, article h2, h2")].filter(h => !h.closest("umo-root")).map(h => h.innerText.trim()).filter(Boolean).slice(0, 5);
+      d = { titel: src.title, einleitung: desc, kapitel: hs.length ? [{ titel: "Auf dieser Seite.", form: "punkte", punkte: hs }] : [], naechster: act ? (act.innerText || "").trim().slice(0, 40) : "", ohneKi: true };
+    }
+    const kap = (Array.isArray(d.kapitel) ? d.kapitel : []).slice(0, 4);
+    const extra = [];
+    if (imgs.length) extra.push({ titel: "Bilder.", form: "bilder" });
+    if (d.naechster && act) extra.push({ titel: "Nächster Schritt.", form: "cta" });
+    const all = [...kap, ...extra], n = all.length;
+    const chapter = (k, i) => {
+      let body = "";
+      if (k.form === "zahlen") body = `<div class="fcard fnums">${(k.zahlen || []).slice(0, 5).map(z => `<div class="fnum"><span>${esc(z.label)}</span><b>${esc(z.wert)}</b></div>`).join("")}</div>`;
+      else if (k.form === "vergleich" && k.vergleich && Array.isArray(k.vergleich.items)) {
+        const it = k.vergleich.items.filter(x => Number.isFinite(+x.zahl)).slice(0, 6), mx = Math.max(...it.map(x => Math.abs(+x.zahl))) || 1;
+        body = `<div class="fcard fcmp" role="img" aria-label="${esc(it.map(x => x.label + " " + x.anzeige).join(", "))}">${it.map(x => `<div class="fcrow"><span class="fcl">${esc(x.label)}</span><b>${esc(x.anzeige)}</b><span class="fcbar${+x.zahl < 0 ? " neg" : ""}"><i style="width:${Math.max(2, Math.abs(+x.zahl) / mx * 100).toFixed(1)}%"></i></span></div>`).join("")}</div>`;
+      }
+      else if (k.form === "bilder") body = `<div class="fimgs">${imgs.slice(0, 2).map(u => `<img src="${esc(u)}" alt="">`).join("")}</div>`;
+      else if (k.form === "cta") body = `<div class="fcard fcta"><p>${esc(d.naechster)}</p><button data-act="fp-cta">${esc((act.innerText || act.value || "Weiter").trim().slice(0, 40))}</button></div>`;
+      else body = `<div class="fcard"><ul class="fpts">${(k.punkte || []).slice(0, 4).map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>`;
+      return `<section class="fsec"><div class="fsh"><h2>${esc(k.titel)}</h2><span>${i + 1}/${n}</span></div>${body}</section>`;
+    };
+    $("#layer").innerHTML = shell(heroHTML(d.titel || src.title, d.einleitung) + all.map(chapter).join("") +
+      `<p class="fnote">${d.ohneKi ? "Ohne KI-Schlüssel zeigt UMO nur die Überschriften der Seite. <button data-act='options'>Schlüssel eintragen</button>" : "Von einer KI zusammengefasst. Wichtige Angaben bitte auf der Seite prüfen."}</p>`);
+    $(".fclose").focus();
+  }
+  function focusCta() {
+    const a = mainAction(); closeLayer();
+    if (!a) return;
+    a.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    a.style.outline = "4px solid #FF541B"; a.style.outlineOffset = "4px"; setTimeout(() => { a.style.outline = ""; a.style.outlineOffset = ""; }, 4000);
+    try { a.focus({ preventScroll: true }); } catch (e) {}
+  }
+
   /* ---------- calming breath ----------
      Ein Lichtkreis atmet mit: 4 Sekunden größer werden (einatmen), 6 Sekunden kleiner (ausatmen).
      Weiche Farbverläufe, keine springenden Zahlen. Bei „Bewegung reduzieren“ nur Text. */
-  let breathT, breathRun = 0;
+  let breathT, breathRun = 0, blobRAF = 0;
+  // Flüssige Blase: Radius an 9 Punkten schwankt langsam (überlagerte Sinuswellen), weich verbunden
+  function blobPath(t, r, wob) {
+    const N = 9, pts = [];
+    for (let i = 0; i < N; i++) {
+      const a = i / N * Math.PI * 2;
+      const k = 1 + wob * (Math.sin(t * 0.0009 + i * 1.7) * 0.55 + Math.sin(t * 0.0013 + i * 2.9) * 0.3 + Math.sin(t * 0.0005 + i * 0.8) * 0.15);
+      pts.push([100 + Math.cos(a) * r * k, 100 + Math.sin(a) * r * k]);
+    }
+    let d = "";
+    for (let i = 0; i < N; i++) {
+      const p0 = pts[(i - 1 + N) % N], p1 = pts[i], p2 = pts[(i + 1) % N], p3 = pts[(i + 2) % N];
+      if (!i) d = `M${p1[0].toFixed(2)},${p1[1].toFixed(2)}`;
+      const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6], c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+      d += `C${c1[0].toFixed(2)},${c1[1].toFixed(2)} ${c2[0].toFixed(2)},${c2[1].toFixed(2)} ${p2[0].toFixed(2)},${p2[1].toFixed(2)}`;
+    }
+    return d + "Z";
+  }
   function openBreath() {
     stopSpeak(); if (!M.calmPage) setMode("calmPage", true);
-    const my = ++breathRun;
-    $("#layer").innerHTML = `<div class="calmwrap" role="dialog" aria-modal="true" aria-labelledby="calmT"><button class="close" data-act="close">Schließen</button>
+    const my = ++breathRun, still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    $("#layer").innerHTML = `<div class="calmwrap" role="dialog" aria-modal="true" aria-labelledby="calmT">
+      <div class="sky" aria-hidden="true"><i class="au a1"></i><i class="au a2"></i><i class="au a3"></i><i class="au a4"></i>${Array.from({ length: 14 }, (_, i) => `<b class="mote" style="left:${(i * 71) % 100}%;animation-delay:-${(i * 3.7) % 26}s;animation-duration:${22 + (i * 5) % 14}s"></b>`).join("")}</div>
+      <button class="close" data-act="close">Schließen</button>
       <div class="calmcard" id="calmCard"><h2 id="calmT">Atemübung</h2>
-        <p class="instr" id="instr" aria-live="polite">Mach es dir bequem. Atme mit dem Kreis.</p>
-        <div class="orbwrap" aria-hidden="true"><div class="halo h3"></div><div class="halo h2"></div><div class="halo h1"></div><div class="orb" id="orb"><span id="phase"></span></div></div>
+        <p class="instr" id="instr" aria-live="polite">Mach es dir bequem. Atme mit der Blase.</p>
+        <div class="orbwrap" aria-hidden="true">
+          <svg class="bubble" id="bubble" viewBox="0 0 200 200">
+            <defs>
+              <radialGradient id="bg1" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="#FFF6FB"/><stop offset=".35" stop-color="#F3C9FF"/><stop offset=".7" stop-color="#C08BFF"/><stop offset="1" stop-color="#8E5BEA"/></radialGradient>
+              <linearGradient id="bg2" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#FFB38F" stop-opacity=".55"/><stop offset="1" stop-color="#FF8FC7" stop-opacity="0"/></linearGradient>
+              <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"/></filter>
+            </defs>
+            <path id="bGlow" fill="#C47BFF" opacity=".55" filter="url(#soft)"/>
+            <path id="bBody" fill="url(#bg1)"/>
+            <path id="bTint" fill="url(#bg2)"/>
+            <ellipse id="bShine" cx="78" cy="70" rx="20" ry="11" fill="#fff" opacity=".5"/>
+          </svg>
+          <span class="phase" id="phase"></span>
+        </div>
         <div class="rounds" id="rounds" aria-hidden="true">${[0, 1, 2, 3].map(() => "<i></i>").join("")}</div>
         <div class="calmacts"><button class="sound" data-act="sound" aria-pressed="${M.sound}">${ICON.phones}<span>Ruhige Klänge</span></button></div>
       </div></div>`;
     const card = $("#calmCard"), instr = $("#instr"), phase = $("#phase"), rounds = $("#rounds");
+    const glow = $("#bGlow"), body = $("#bBody"), tint = $("#bTint"), shine = $("#bShine");
+    // Größe folgt dem Atem (weich interpoliert), die Form fließt ständig
+    let size = 0.62, target = 0.62, rate = 0.0006, last = performance.now();
+    cancelAnimationFrame(blobRAF);
+    const frame = now => {
+      if (my !== breathRun || !$("#bubble")) return;
+      const dt = Math.min(64, now - last); last = now;
+      size += (target - size) * (1 - Math.exp(-dt * rate));
+      const r = 74 * size, w = still ? 0 : 0.06 + (1 - size) * 0.05;
+      const sx = 100 - r * 0.38 + Math.sin(now * 0.0007) * r * 0.03, sy = 100 - r * 0.46;
+      shine.setAttribute("cx", sx.toFixed(1)); shine.setAttribute("cy", sy.toFixed(1)); shine.setAttribute("rx", (r * 0.26).toFixed(1)); shine.setAttribute("ry", (r * 0.13).toFixed(1));
+      shine.setAttribute("transform", `rotate(-30 ${sx.toFixed(1)} ${sy.toFixed(1)})`);
+      body.setAttribute("d", blobPath(now, r, w)); tint.setAttribute("d", blobPath(now + 4000, r * 0.98, w * 1.2)); glow.setAttribute("d", blobPath(now + 9000, r * 1.08, w));
+      blobRAF = requestAnimationFrame(frame);
+    };
+    blobRAF = requestAnimationFrame(frame);
     const ROUNDS = 4;
     const swell = (to, sec) => { if (audio) { try { const g = audio.master.gain, t = audio.ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(to, t + sec); } catch (e) {} } };
     const setText = (el, t) => { el.classList.add("fade"); setTimeout(() => { el.textContent = t; el.classList.remove("fade"); }, 350); };
     const step = (round, inhale) => {
-      if (my !== breathRun || !$("#orb")) return;
+      if (my !== breathRun || !$("#bubble")) return;
       if (round >= ROUNDS) {
-        card.className = "calmcard done"; setText(phase, ""); setText(instr, "Gut gemacht. Lass dir Zeit, bevor du weiterliest.");
+        card.className = "calmcard done"; target = 0.7; rate = 0.0004; setText(phase, ""); setText(instr, "Gut gemacht. Lass dir Zeit, bevor du weiterliest.");
         swell(0.6, 4); return;
       }
       card.className = "calmcard " + (inhale ? "inhale" : "exhale");
+      target = inhale ? 1 : 0.62; rate = inhale ? 0.0011 : 0.0007;
       setText(phase, inhale ? "Einatmen" : "Ausatmen");
-      if (round === 0 && inhale) setText(instr, "Atme langsam durch die Nase ein, während der Kreis wächst.");
+      if (round === 0 && inhale) setText(instr, "Atme langsam durch die Nase ein, während die Blase wächst.");
       if (round === 0 && !inhale) setText(instr, "Und ganz langsam wieder aus.");
       if (round === 1 && inhale) setText(instr, "Gut so. Ganz in deinem Tempo.");
       [...rounds.children].forEach((d, i) => d.classList.toggle("on", i <= round));
@@ -1369,7 +1548,7 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
     };
     clearTimeout(breathT);
     card.className = "calmcard rest";
-    breathT = setTimeout(() => step(0, true), 2200);
+    breathT = setTimeout(() => step(0, true), 2400);
     $(".calmwrap .close").focus();
   }
 
@@ -1404,6 +1583,8 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
         closeLayer(); toast(INFO[v].title + " ist an."); break;
       }
       case "breath": openBreath(); break;
+      case "focus-page": openFocusPage(); break;
+      case "fp-cta": focusCta(); break;
       case "sound": setMode("sound", !M.sound); b.setAttribute("aria-pressed", String(M.sound)); break;
       case "hide-site": cfg.hiddenSites = [...new Set([...(cfg.hiddenSites || []), HOST])]; chrome.storage.local.set({ hiddenSites: cfg.hiddenSites }); ui.visible = false; closeLayer(); renderLauncher(); break;
       case "chip": sendNeed(b.textContent); break;
@@ -1441,6 +1622,7 @@ Antworte nur mit JSON: {"snacks":[{"title":"...","text":"..."}]}`, { maxTokens: 
       case "s-full": setMode("snack", false); break;
       case "qa-send": askProduct($("#qaIn").value); break;
       case "lvl": M.structure = b.dataset.level === "sehr"; for (const st of CH.values()) { st.level = null; st.exp = {}; } renderReader(); break;
+      case "focus-page-retry": openFocusPage(); break;
       case "retry-reader": {
         for (const k of Object.keys(snackCache)) if (snackCache[k].failed) delete snackCache[k];
         if (summaryCache === null || summaryCache && !summaryCache.pts) summaryCache = null;
